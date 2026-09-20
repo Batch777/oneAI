@@ -62,11 +62,17 @@ class CommandInput(Input):
 
     def action_comp_up(self) -> None:
         app: OneAIApp = self.app  # type: ignore[assignment]
-        app.move_completion(-1)
+        if app.completion_active():
+            app.move_completion(-1)
+        else:
+            app.chat().scroll_up()  # single-line transcript scroll (pi: lineUp)
 
     def action_comp_down(self) -> None:
         app: OneAIApp = self.app  # type: ignore[assignment]
-        app.move_completion(1)
+        if app.completion_active():
+            app.move_completion(1)
+        else:
+            app.chat().scroll_down()
 
     def action_submit_or_complete(self) -> None:
         app: OneAIApp = self.app  # type: ignore[assignment]
@@ -93,7 +99,27 @@ class OneAIApp(App):
     ConfirmScreen Label { width: 60; padding: 1 2; background: $surface; }
     """
 
-    BINDINGS = [("ctrl+q", "quit", "退出")]
+    # Transcript scrolling (pi keybindings: pageUp/pageDown scroll the
+    # transcript even while the editor is focused; ctrl+u/d = half page).
+    BINDINGS = [
+        ("ctrl+q", "quit", "退出"),
+        ("pageup", "scroll_page_up", "上翻"),
+        ("pagedown", "scroll_page_down", "下翻"),
+        ("ctrl+u", "scroll_half_up", "半页上"),
+        ("ctrl+d", "scroll_half_down", "半页下"),
+    ]
+
+    def action_scroll_page_up(self) -> None:
+        self.chat().scroll_page_up()
+
+    def action_scroll_page_down(self) -> None:
+        self.chat().scroll_page_down()
+
+    def action_scroll_half_up(self) -> None:
+        self.chat().scroll_up(lines=max(1, self.chat().size.height // 2))
+
+    def action_scroll_half_down(self) -> None:
+        self.chat().scroll_down(lines=max(1, self.chat().size.height // 2))
 
     UI_COMMANDS = [
         Command("help", "显示帮助"),
