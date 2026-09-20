@@ -2,15 +2,15 @@
 
 pi-inspired:
 - Slash commands from a flat registry (UI commands + extension commands)
-- Live autocomplete hint + Tab completion when typing "/"
+- Vertical completion menu (↑↓ navigate, Tab/Enter select, Esc dismiss)
 - Markdown-rendered answers, tool-call status lines, permission-gate modal
-- /copy copies the last answer; Option+drag for native terminal selection
+- Mouse capture off → Ghostty native drag-select & copy; /copy for last answer
+- Kitty graphics: /image preview, /vision questions, agent-initiated image_show
 """
 from __future__ import annotations
 
 import concurrent.futures
 import subprocess
-import sys
 from pathlib import Path
 
 from rich.markdown import Markdown
@@ -85,10 +85,10 @@ class CommandInput(Input):
 class OneAIApp(App):
     CSS = """
     /* No borders: box-drawing chars would end up in mouse-selected copies. */
-    #chat { height: 1fr; }
+    #chat { height: 1fr; padding: 0 1; }
     #completion { height: auto; max-height: 9; display: none; }
     #completion.visible { display: block; }
-    #input { height: auto; }
+    #input { height: auto; background: $boost; padding: 0 1; }
     ConfirmScreen { align: center middle; }
     ConfirmScreen Label { width: 60; padding: 1 2; background: $surface; }
     """
@@ -120,7 +120,6 @@ class OneAIApp(App):
         yield RichLog(id="chat", markup=True, wrap=True)
         yield OptionList(id="completion")
         yield CommandInput(placeholder="直接输入提问；/ 开头为命令（↑↓ 选择，Tab 补全）", id="input")
-        yield Footer()
 
     def on_mount(self) -> None:
         self.title = "oneAI"
@@ -248,20 +247,21 @@ class OneAIApp(App):
     @work(thread=True)
     def _start_chat(self, text: str, images: list[Path] | None = None) -> None:
         shown = text + ("".join(f" 📎{p.name}" for p in images) if images else "")
-        self.call_from_thread(self.chat().write, f"\n[bold cyan]你:[/bold cyan] {shown}")
+        self.call_from_thread(self.chat().write, f"\n[bold cyan]❯ {shown}[/bold cyan]")
         try:
             answer = self.runtime.run_agent(text, on_event=self._on_agent_event, images=images)
         except Exception as e:
             answer = f"**错误**: {e}"
         self._last_answer = answer
-        self.call_from_thread(self.chat().write, Markdown(f"**助手:** {answer}"))
+        self.call_from_thread(self.chat().write, "[dim]助手[/dim]")
+        self.call_from_thread(self.chat().write, Markdown(answer))
 
     def _on_agent_event(self, kind: str, data: dict) -> None:
         if kind == "tool_start":
             args = ", ".join(f"{k}={str(v)[:40]}" for k, v in data["args"].items())
-            self.call_from_thread(self.chat().write, f"[dim]🔧 {data['name']}({args})[/dim]")
+            self.call_from_thread(self.chat().write, f"[dim]  🔧 {data['name']}({args})[/dim]")
         elif kind == "tool_denied":
-            self.call_from_thread(self.chat().write, f"[yellow]⛔ {data['name']} 被拒绝[/yellow]")
+            self.call_from_thread(self.chat().write, f"  [yellow]⛔ {data['name']} 被拒绝[/yellow]")
 
     def _confirm_gate(self, title: str, message: str) -> bool:
         """Called from the worker thread when a confirm-gated tool fires."""
