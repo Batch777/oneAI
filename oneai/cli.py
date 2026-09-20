@@ -39,6 +39,7 @@ def main() -> None:
     p_draft.add_argument("--json", action="store_true")
 
     sub.add_parser("tui", help="launch the terminal UI")
+    sub.add_parser("wheel-debug", help="numeric wheel/trackpad scroll debugger")
 
     sub.add_parser("status", help="show ledger counts and recent events")
 
@@ -133,6 +134,11 @@ def main() -> None:
 
     elif args.cmd == "tui":
         from .tui import run
+
+        run()
+
+    elif args.cmd == "wheel-debug":
+        from .wheel_debug import run
 
         run()
 

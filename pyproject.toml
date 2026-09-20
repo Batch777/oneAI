@@ -16,6 +16,9 @@ dependencies = [
     "Pillow>=10.0",
 ]
 
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
 [project.scripts]
 oneai = "oneai.cli:main"
 
