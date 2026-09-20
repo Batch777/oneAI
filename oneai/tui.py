@@ -259,13 +259,10 @@ class CommandInput(Input):
         return True
 
     def action_ctrl_d(self) -> None:
-        if self.vim_enabled and self.vim_mode == "normal":
-            self.app.exit()  # Ctrl+D in NORMAL quits (shell-EOF style)
-        elif self.value:
-            self.action_delete_right()  # pi: deleteCharForward
-        else:
-            app: OneAIApp = self.app  # type: ignore[assignment]
-            app.handle_empty_ctrl_d()
+        # Ctrl+D = quit gesture in BOTH modes, always double-press with the
+        # same hint (consistent whether the input is empty or not).
+        app: OneAIApp = self.app  # type: ignore[assignment]
+        app.handle_ctrl_d()
 
     def action_clear_input(self) -> None:
         # Ctrl+C: with vim on, enter NORMAL (user preference); off -> clear line
@@ -319,7 +316,7 @@ class OneAIApp(App):
     #status { height: auto; padding: 0 1; color: $warning; display: none; }
     #status.visible { display: block; }
     #input-bar { height: 1; }
-    #mode { width: 12; height: 1; padding: 0 1; color: black; background: $success; text-style: bold; content-align: center middle; }
+    #mode { width: auto; min-width: 7; height: 1; padding: 0 1; color: black; background: $success; text-style: bold; content-align: center middle; }
     #mode.normal { background: $primary; }
     /* pi-style prompt: no border (cleaner + nothing boxy leaks into copies) */
     #input { width: 1fr; height: 1; border: none; background: $boost; padding: 0 1; }
@@ -342,8 +339,9 @@ class OneAIApp(App):
     def action_scroll_page_down(self) -> None:
         self.chat().scroll_page_down()
 
-    def handle_empty_ctrl_d(self) -> None:
-        """Double Ctrl+D on an empty input quits (like shell EOF)."""
+    def handle_ctrl_d(self) -> None:
+        """Double Ctrl+D quits (like shell EOF), with a status-line hint.
+        Identical behavior in INSERT and NORMAL, with or without text."""
         import time
 
         now = time.monotonic()

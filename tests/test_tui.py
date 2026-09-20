@@ -137,27 +137,35 @@ class TestEditorKeys:
             await pilot.press("ctrl+u")
             assert box.value == "def"
 
-            # ctrl+d with text = delete forward (pi: deleteCharForward)
+            # ctrl+d = quit gesture in both modes, double-press, same hint
             box.value = "abc"
-            box.cursor_position = 0
-            await pilot.press("ctrl+d")
-            assert box.value == "bc"
-
-            # ctrl+d in NORMAL mode quits directly
             exited = []
             app.exit = lambda: exited.append(1)
-            await pilot.press("escape")       # normal mode
+            await pilot.press("ctrl+d")        # first press: hint only
+            await pilot.pause(0.2)
+            assert not exited and box.value == "abc"  # text untouched
+            await pilot.press("ctrl+d")        # second press: quit
+            assert exited
+
+            # NORMAL mode: identical behavior
+            box.value = "abc"
+            exited.clear()
+            app._last_ctrl_d = 0.0
+            await pilot.press("escape")
+            await pilot.press("ctrl+d")
+            await pilot.pause(0.2)
+            assert not exited and box.value == "abc"
             await pilot.press("ctrl+d")
             assert exited
 
-            # double ctrl+d on empty input quits (INSERT mode)
-            await pilot.press("i")            # back to insert
+            # empty input: same double-press rule
+            await pilot.press("i")
             box.value = ""
-            exited = []
-            app.exit = lambda: exited.append(1)  # spy instead of quitting
+            exited.clear()
+            app._last_ctrl_d = 0.0
             await pilot.press("ctrl+d")
             await pilot.pause(0.2)
-            assert not exited  # first press only warns
+            assert not exited
             # hint shows in the bottom status line, not the chat history
             status = str(app.query_one("#status", Label).render())
             assert "再按一次" in status
