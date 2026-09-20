@@ -13,6 +13,7 @@ dependencies = [
     "python-frontmatter>=1.1",
     "watchdog>=4.0",
     "textual>=0.80",
+    "Pillow>=10.0",
 ]
 
 [project.scripts]

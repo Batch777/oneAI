@@ -11,6 +11,7 @@ from __future__ import annotations
 import concurrent.futures
 import subprocess
 import sys
+from pathlib import Path
 
 from rich.markdown import Markdown
 from textual import work
@@ -72,6 +73,8 @@ class OneAIApp(App):
         Command("reload", "重新加载扩展（~/.oneai/extensions/）"),
         Command("copy", "复制最近一条回答到剪贴板"),
         Command("new", "开启新会话（清空对话上下文）"),
+        Command("image", "在终端中预览图片（Kitty 协议，Ghostty 可用）", argument_hint="<路径>"),
+        Command("vision", "带图提问（图片随问题发给模型）", argument_hint="<路径> <问题>"),
         Command("clear", "清空屏幕"),
         Command("quit", "退出"),
     ]
@@ -95,7 +98,7 @@ class OneAIApp(App):
         self.chat().write(f"[dim]Vault: {self.cfg.vault_path} · 模型: {self.cfg.model}[/dim]")
         if loaded:
             self.chat().write(f"[dim]已加载扩展: {', '.join(loaded)}[/dim]")
-        self.chat().write("[dim]选中复制：Option 拖拽；或 /copy 复制最近回答[/dim]")
+        self.chat().write("[dim]复制：鼠标直接框选 + Cmd+C；/copy 复制最近回答[/dim]")
         self.query_one("#input", Input).focus()
 
     def chat(self) -> RichLog:
@@ -179,10 +182,11 @@ class OneAIApp(App):
     # --- chat & drafting (worker threads; LLM doesn't block UI) ---------------
 
     @work(thread=True)
-    def _start_chat(self, text: str) -> None:
-        self.call_from_thread(self.chat().write, f"\n[bold cyan]你:[/bold cyan] {text}")
+    def _start_chat(self, text: str, images: list[Path] | None = None) -> None:
+        shown = text + ("".join(f" 📎{p.name}" for p in images) if images else "")
+        self.call_from_thread(self.chat().write, f"\n[bold cyan]你:[/bold cyan] {shown}")
         try:
-            answer = self.runtime.run_agent(text, on_event=self._on_agent_event)
+            answer = self.runtime.run_agent(text, on_event=self._on_agent_event, images=images)
         except Exception as e:
             answer = f"**错误**: {e}"
         self._last_answer = answer
@@ -229,6 +233,33 @@ class OneAIApp(App):
         self.chat().write(f"[green]✔ 已加载 {len(loaded)} 个扩展[/green]" if loaded
                           else "[dim]未发现扩展（~/.oneai/extensions/）[/dim]")
 
+    def _ui_image(self, arg: str = "") -> None:
+        """Display an image inline via the Kitty graphics protocol (Ghostty)."""
+        from . import images as img
+
+        path = Path(arg).expanduser()
+        if not arg or not path.exists():
+            self.chat().write("[yellow]用法: /image <图片路径>[/yellow]")
+            return
+        if not img.supports_kitty():
+            subprocess.run(["open", str(path)])
+            self.chat().write(f"[dim]当前终端不支持 Kitty 图形协议，已用系统预览打开 {path.name}[/dim]")
+            return
+        with self.suspend():  # leave alt-screen, draw into normal screen
+            img.display(path)
+            try:
+                input("（图片已显示，回车返回 oneAI）")
+            except EOFError:
+                pass
+
+    def _ui_vision(self, arg: str = "") -> None:
+        path_str, _, question = arg.partition(" ")
+        path = Path(path_str).expanduser()
+        if not question or not path.exists():
+            self.chat().write("[yellow]用法: /vision <图片路径> <问题>[/yellow]")
+            return
+        self._start_chat(question, images=[path])
+
     def _ui_new(self, _arg: str = "") -> None:
         self.runtime.reset_session()
         self.chat().write("[dim]— 新会话 —[/dim]")
@@ -241,6 +272,8 @@ def run() -> None:
         "help": app._ui_help, "copy": app._ui_copy, "inbox": app._ui_inbox,
         "reindex": app._ui_reindex, "reload": app._ui_reload,
         "new": app._ui_new,
+        "image": app._ui_image,
+        "vision": app._ui_vision,
         "clear": lambda a="": app.chat().clear(),
         "quit": lambda a="": app.exit(),
         "draft": lambda a: app._start_chat(f"请起草手稿：{a}") if a
@@ -249,7 +282,7 @@ def run() -> None:
     for c in app.UI_COMMANDS:
         if c.name in handlers:
             c.handler = handlers[c.name]
-    app.run()
+    app.run(mouse=False)  # mouse off → Ghostty native drag-select & copy works
 
 
 if __name__ == "__main__":

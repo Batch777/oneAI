@@ -183,11 +183,19 @@ class Runtime:
         return "\n\n".join(parts)
 
     def run_agent(self, user_text: str, on_event: Callable[[str, dict], None] | None = None,
-                  max_iters: int = 8) -> str:
+                  max_iters: int = 8, images: list[Path] | None = None) -> str:
         """Multi-turn capable tool loop. on_event(kind, data) for UI updates."""
         if not self.llm:
             return "错误：未设置 DEEPSEEK_API_KEY"
-        self.messages.append({"role": "user", "content": user_text})
+        if images:
+            from .images import as_data_url
+
+            content: list[dict] = [{"type": "text", "text": user_text}]
+            content += [{"type": "image_url", "image_url": {"url": as_data_url(p)}}
+                        for p in images]
+            self.messages.append({"role": "user", "content": content})
+        else:
+            self.messages.append({"role": "user", "content": user_text})
         tool_schemas = [
             {"type": "function", "function": {
                 "name": t.name, "description": t.description, "parameters": t.parameters}}
