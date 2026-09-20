@@ -25,7 +25,7 @@ class Config:
     state_path: Path
     deepseek_api_key: str | None
     deepseek_base_url: str = "https://api.deepseek.com"
-    model: str = "deepseek-chat"
+    model: str = "deepseek-flash"
 
     @classmethod
     def load(cls) -> "Config":
@@ -34,7 +34,7 @@ class Config:
             state_path=Path(os.environ.get("ONEAI_STATE_PATH", "~/.oneai/state")).expanduser(),
             deepseek_api_key=os.environ.get("DEEPSEEK_API_KEY"),
             deepseek_base_url=os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
-            model=os.environ.get("ONEAI_MODEL", "deepseek-chat"),
+            model=os.environ.get("ONEAI_MODEL", "deepseek-flash"),
         )
 
     def ensure_dirs(self) -> None:

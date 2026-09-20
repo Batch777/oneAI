@@ -15,7 +15,7 @@ See the design discussion in `docs/`. Core principles:
 ## Layout
 
 - `oneai/` — core: config, vault, indexer (FTS5), ledger, events, LLM, agent, CLI
-- `connectors/outlook/` — Microsoft Graph (personal accounts, device-code auth)
+- `connectors/outlook/` — Microsoft Graph (personal accounts, device-code auth) — **deferred** (Azure app registration postponed per 2026-09-20 decision; drafting will be strictly user-triggered via TUI, never automatic)
 - `ios/` — SwiftUI app (thin client over the iCloud-synced vault)
 - `docs/` — design docs and ADRs
 
@@ -25,7 +25,7 @@ See the design discussion in `docs/`. Core principles:
 |---|---|---|
 | `DEEPSEEK_API_KEY` | — | LLM auth (required for `ask`) |
 | `DEEPSEEK_BASE_URL` | `https://api.deepseek.com` | OpenAI-compatible endpoint |
-| `ONEAI_MODEL` | `deepseek-chat` | model name |
+| `ONEAI_MODEL` | `deepseek-flash` | model name |
 | `ONEAI_VAULT_PATH` | iCloud Drive `oneAI/vault` | vault location |
 | `ONEAI_STATE_PATH` | `~/.oneai/state` | index/ledger/events |
 | `ONEAI_GRAPH_CLIENT_ID` | — | Azure app registration for Outlook |

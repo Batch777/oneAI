@@ -11,6 +11,7 @@ import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
+# trigram tokenizer: substring matching, works for unsegmented CJK text.
 SCHEMA = """
 CREATE VIRTUAL TABLE IF NOT EXISTS chunks USING fts5(
     text,
@@ -18,7 +19,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS chunks USING fts5(
     path UNINDEXED,
     start_line UNINDEXED,
     end_line UNINDEXED,
-    tokenize = 'unicode61'
+    tokenize = 'trigram'
 );
 """
 
@@ -89,6 +90,19 @@ def _safe_query(query: str) -> str:
     return " OR ".join(f'"{t}"' for t in tokens) or '""'
 
 
+def _cjk_bigrams(query: str) -> list[str]:
+    """Overlapping 2-char substrings of CJK runs, for LIKE fallback matching.
+    Trigram FTS cannot match 2-char Chinese words (e.g. 用户); these can."""
+    bigrams: list[str] = []
+    for run in re.findall(r"[\u4e00-\u9fff]+", query):
+        bigrams.extend(run[i : i + 2] for i in range(len(run) - 1))
+    return bigrams
+
+
+def _escape_like(s: str) -> str:
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 class Index:
     def __init__(self, db_path: Path):
         db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -96,7 +110,9 @@ class Index:
         self.conn.executescript(SCHEMA)
 
     def rebuild(self, vault: Path) -> int:
-        self.conn.execute("DELETE FROM chunks")
+        # Drop and recreate so tokenizer changes take effect on rebuild.
+        self.conn.execute("DROP TABLE IF EXISTS chunks")
+        self.conn.executescript(SCHEMA)
         n = 0
         for md in sorted(vault.rglob("*.md")):
             n += self.index_file(vault, md)
@@ -127,7 +143,26 @@ class Index:
             """,
             (_safe_query(query), k),
         ).fetchall()
-        return [SearchResult(p, s, e, h or "", sn) for p, s, e, h, sn in rows]
+        results = [SearchResult(p, s, e, h or "", sn) for p, s, e, h, sn in rows]
+
+        # CJK fallback: substring LIKE matching for Chinese bigrams.
+        seen = {(r.path, r.start_line) for r in results}
+        for bg in _cjk_bigrams(query):
+            rows = self.conn.execute(
+                """
+                SELECT path, start_line, end_line, heading,
+                       substr(text, max(1, instr(text, ?1) - 30), 90)
+                FROM chunks
+                WHERE text LIKE ?2 ESCAPE '\\'
+                LIMIT ?3
+                """,
+                (bg, f"%{_escape_like(bg)}%", k),
+            ).fetchall()
+            for p, s, e, h, sn in rows:
+                if (p, s) not in seen:
+                    seen.add((p, s))
+                    results.append(SearchResult(p, s, e, h or "", sn.replace("\n", " ")))
+        return results[:k]
 
     def close(self) -> None:
         self.conn.close()

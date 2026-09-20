@@ -13,10 +13,10 @@ class LLM:
         self.client = OpenAI(api_key=cfg.deepseek_api_key, base_url=cfg.deepseek_base_url)
         self.model = cfg.model
 
-    def chat(self, system: str, user: str, temperature: float = 0.3) -> str:
+    def chat(self, system: str, user: str) -> str:
+        # Note: no temperature param — DeepSeek reasoning models reject it.
         resp = self.client.chat.completions.create(
             model=self.model,
-            temperature=temperature,
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
