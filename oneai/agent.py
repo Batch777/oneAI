@@ -1,10 +1,14 @@
 """Agent: answer questions from the vault, always with provenance citations."""
 from __future__ import annotations
 
+from datetime import datetime
+from pathlib import Path
+
 from .config import Config
 from .events import EventLog
 from .indexer import Index, SearchResult
 from .llm import LLM
+from .vault import new_id, now_iso, write_note
 
 SYSTEM = """You are a personal assistant answering questions about the user's life.
 Use ONLY the context notes below. Rules:
@@ -27,7 +31,8 @@ def _identity_context(cfg: Config) -> str:
 def build_context(results: list[SearchResult]) -> str:
     blocks = []
     for r in results:
-        blocks.append(f"--- {r.citation} ({r.heading or 'no heading'}) ---\n{r.snippet}")
+        body = r.text or r.snippet
+        blocks.append(f"--- {r.citation} ({r.heading or 'no heading'}) ---\n{body[:1500]}")
     return "\n\n".join(blocks)
 
 
@@ -48,3 +53,45 @@ def ask(cfg: Config, question: str, k: int = 8) -> str:
 
     sources = "\n".join(f"- {r.citation}" for r in results)
     return f"{answer}\n\nSources:\n{sources}"
+
+
+DRAFT_SYSTEM = """You are a writing assistant for the user.
+Write a manuscript following the user's instruction, grounded in the context
+notes below. Reply in the user's preferred language. Do not send anything;
+output only the manuscript text."""
+
+
+def draft_manuscript(cfg: Config, instruction: str, k: int = 6) -> Path:
+    """Generate a manuscript from vault context and save it to inbox/drafts/.
+
+    Called ONLY on explicit user action (TUI 'AI Draft' button / CLI),
+    never automatically. The draft has status 'drafted' until the user edits
+    it and sets 'approved'.
+    """
+    index = Index(cfg.index_db)
+    results = index.search(instruction, k=k)
+    index.close()
+    context = build_context(results) if results else "(no vault context)"
+
+    body = LLM(cfg).chat(
+        DRAFT_SYSTEM + _identity_context(cfg),
+        f"Context:\n{context}\n\nInstruction: {instruction}",
+    )
+
+    ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+    rel = f"inbox/drafts/{ts}-{new_id()}.md"
+    path = write_note(
+        cfg.vault_path,
+        rel,
+        {
+            "id": new_id(),
+            "title": instruction[:40],
+            "status": "drafted",  # drafted -> approved -> sent
+            "instruction": instruction,
+            "created": now_iso(),
+            "sources": [r.citation for r in results],
+        },
+        body + "\n",
+    )
+    EventLog(cfg.events_log).emit("draft.created", path=rel, instruction=instruction)
+    return path

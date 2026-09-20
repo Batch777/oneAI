@@ -28,6 +28,11 @@ def main() -> None:
     p_ask = sub.add_parser("ask", help="ask a question, answered with citations")
     p_ask.add_argument("question")
 
+    p_draft = sub.add_parser("draft", help="draft a manuscript into inbox/drafts/ (manual trigger only)")
+    p_draft.add_argument("instruction")
+
+    sub.add_parser("tui", help="launch the terminal UI")
+
     sub.add_parser("status", help="show ledger counts and recent events")
 
     args = p.parse_args()
@@ -60,6 +65,17 @@ def main() -> None:
             print(ask(cfg, args.question))
         except RuntimeError as e:
             sys.exit(f"error: {e}")
+
+    elif args.cmd == "draft":
+        from .agent import draft_manuscript
+
+        path = draft_manuscript(cfg, args.instruction)
+        print(f"Draft saved: {path.relative_to(cfg.vault_path)}  (status: drafted)")
+
+    elif args.cmd == "tui":
+        from .tui import run
+
+        run()
 
     elif args.cmd == "status":
         ledger = Ledger(cfg.ledger_db)

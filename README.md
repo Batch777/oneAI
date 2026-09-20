@@ -14,6 +14,8 @@ oneai init                            # creates vault in iCloud Drive
 oneai index                           # build the search index
 oneai search "topic"
 oneai ask "question"                  # answers with [[path#Lx-Ly]] citations
+oneai draft "instruction"             # manuscript → inbox/drafts/ (manual only)
+oneai tui                             # terminal UI: chat / search / AI Draft / Inbox
 ```
 
 See `docs/ARCHITECTURE.md` for the design and configuration reference.

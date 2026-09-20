@@ -24,6 +24,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS chunks USING fts5(
 """
 
 MAX_CHUNK_CHARS = 1200
+MIN_CHUNK_CHARS = 200  # smaller chunks get merged into the following one
 
 
 @dataclass
@@ -33,6 +34,7 @@ class SearchResult:
     end_line: int
     heading: str
     snippet: str
+    text: str = ""   # full chunk text (for LLM context; snippet is display-only)
 
     @property
     def citation(self) -> str:
@@ -81,7 +83,20 @@ def chunk_markdown(text: str) -> list[tuple[int, int, str, str]]:
         buf.append(line)
         size += len(line) + 1
     flush(len(lines))
-    return chunks
+    return _merge_small(chunks)
+
+
+def _merge_small(chunks: list[tuple[int, int, str, str]]) -> list[tuple[int, int, str, str]]:
+    """Merge a too-small chunk (e.g. a lone heading) into the next one."""
+    merged: list[tuple[int, int, str, str]] = []
+    for chunk in chunks:
+        if merged and len(merged[-1][3]) < MIN_CHUNK_CHARS:
+            s, _, h, t = merged.pop()
+            e2, h2, t2 = chunk[1], chunk[2], chunk[3]
+            merged.append((s, e2, h2 or h, t + "\n" + t2))
+        else:
+            merged.append(chunk)
+    return [(s, e, h, t) for s, e, h, t in merged if t.strip()]
 
 
 def _safe_query(query: str) -> str:
@@ -135,7 +150,8 @@ class Index:
         rows = self.conn.execute(
             """
             SELECT path, start_line, end_line, heading,
-                   snippet(chunks, 0, '«', '»', '…', 32) AS snip
+                   snippet(chunks, 0, '«', '»', '…', 32) AS snip,
+                   text
             FROM chunks
             WHERE chunks MATCH ?
             ORDER BY bm25(chunks)
@@ -143,7 +159,7 @@ class Index:
             """,
             (_safe_query(query), k),
         ).fetchall()
-        results = [SearchResult(p, s, e, h or "", sn) for p, s, e, h, sn in rows]
+        results = [SearchResult(p, s, e, h or "", sn, t) for p, s, e, h, sn, t in rows]
 
         # CJK fallback: substring LIKE matching for Chinese bigrams.
         seen = {(r.path, r.start_line) for r in results}
@@ -151,17 +167,18 @@ class Index:
             rows = self.conn.execute(
                 """
                 SELECT path, start_line, end_line, heading,
-                       substr(text, max(1, instr(text, ?1) - 30), 90)
+                       substr(text, max(1, instr(text, ?1) - 30), 90),
+                       text
                 FROM chunks
                 WHERE text LIKE ?2 ESCAPE '\\'
                 LIMIT ?3
                 """,
                 (bg, f"%{_escape_like(bg)}%", k),
             ).fetchall()
-            for p, s, e, h, sn in rows:
+            for p, s, e, h, sn, t in rows:
                 if (p, s) not in seen:
                     seen.add((p, s))
-                    results.append(SearchResult(p, s, e, h or "", sn.replace("\n", " ")))
+                    results.append(SearchResult(p, s, e, h or "", sn.replace("\n", " "), t))
         return results[:k]
 
     def close(self) -> None:

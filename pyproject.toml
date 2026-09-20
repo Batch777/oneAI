@@ -12,6 +12,7 @@ dependencies = [
     "msal>=1.30",
     "python-frontmatter>=1.1",
     "watchdog>=4.0",
+    "textual>=0.80",
 ]
 
 [project.scripts]
