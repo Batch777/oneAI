@@ -68,25 +68,35 @@ class ConfirmScreen(ModalScreen[bool]):
 
 
 class CommandInput(Input):
+    """Editor keybindings aligned with pi (tui.editor.*):
+    ctrl+b/f cursor, alt+←/→ word jump, ctrl+u/k/w deletion (Input defaults),
+    ctrl+d delete-forward / double-press on empty input = quit,
+    ctrl+c clears the input (user preference over pi's copy).
+    """
+
     BINDINGS = [
         Binding("tab", "complete", "补全", show=False),
         Binding("up", "comp_up", show=False),
         Binding("down", "comp_down", show=False),
         Binding("enter", "submit_or_complete", show=False),
         Binding("escape", "comp_dismiss", show=False),
-        # Input's own ctrl+u/ctrl+d (delete-line / delete-char) are overridden:
-        # transcript scrolling takes precedence (pi-style).
-        Binding("ctrl+u", "scroll_half_up", show=False),
-        Binding("ctrl+d", "scroll_half_down", show=False),
+        Binding("ctrl+b", "cursor_left", show=False),
+        Binding("ctrl+f", "cursor_right", show=False),
+        Binding("alt+left", "cursor_left_word", show=False),
+        Binding("alt+right", "cursor_right_word", show=False),
+        Binding("ctrl+d", "ctrl_d", show=False),
+        Binding("ctrl+c", "clear_input", show=False),
     ]
 
-    def action_scroll_half_up(self) -> None:
-        app: OneAIApp = self.app  # type: ignore[assignment]
-        app.action_scroll_half_up()
+    def action_ctrl_d(self) -> None:
+        if self.value:
+            self.action_delete_right()  # pi: deleteCharForward
+        else:
+            app: OneAIApp = self.app  # type: ignore[assignment]
+            app.handle_empty_ctrl_d()
 
-    def action_scroll_half_down(self) -> None:
-        app: OneAIApp = self.app  # type: ignore[assignment]
-        app.action_scroll_half_down()
+    def action_clear_input(self) -> None:
+        self.value = ""
 
     def action_complete(self) -> None:
         app: OneAIApp = self.app  # type: ignore[assignment]
@@ -132,13 +142,11 @@ class OneAIApp(App):
     """
 
     # Transcript scrolling (pi keybindings: pageUp/pageDown scroll the
-    # transcript even while the editor is focused; ctrl+u/d = half page).
+    # transcript even while the editor is focused).
     BINDINGS = [
         ("ctrl+q", "quit", "退出"),
         ("pageup", "scroll_page_up", "上翻"),
         ("pagedown", "scroll_page_down", "下翻"),
-        ("ctrl+u", "scroll_half_up", "半页上"),
-        ("ctrl+d", "scroll_half_down", "半页下"),
     ]
 
     def action_scroll_page_up(self) -> None:
@@ -147,11 +155,16 @@ class OneAIApp(App):
     def action_scroll_page_down(self) -> None:
         self.chat().scroll_page_down()
 
-    def action_scroll_half_up(self) -> None:
-        self.chat().scroll_relative(y=-max(1, self.chat().size.height // 2), animate=False)
+    def handle_empty_ctrl_d(self) -> None:
+        """Double Ctrl+D on an empty input quits (like shell EOF)."""
+        import time
 
-    def action_scroll_half_down(self) -> None:
-        self.chat().scroll_relative(y=max(1, self.chat().size.height // 2), animate=False)
+        now = time.monotonic()
+        if now - getattr(self, "_last_ctrl_d", 0.0) < 1.5:
+            self.exit()
+        else:
+            self._last_ctrl_d = now
+            self.chat().write("[dim]再按一次 Ctrl+D 退出[/dim]")
 
     UI_COMMANDS = [
         Command("help", "显示帮助"),

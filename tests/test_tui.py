@@ -98,30 +98,80 @@ class TestScrolling:
             await pilot.pause(0.3)
             assert bottom - chat.scroll_offset.y == WHEEL_SCROLL_LINES
 
-            # ctrl+u/ctrl+d scroll even while input focused (Input defaults overridden)
-            box = app.query_one("#input", Input)
-            box.value = "draft text"
-            box.focus()
+            # arrows scroll chat when completion hidden, navigate when visible
             chat.scroll_end(animate=False)
             await pilot.pause(0.2)
             b2 = chat.scroll_offset.y
-            await pilot.press("ctrl+u")
-            await pilot.pause(0.3)
-            assert chat.scroll_offset.y < b2
-            assert box.value == "draft text"  # input untouched
-            await pilot.press("ctrl+d")
-            await pilot.pause(0.3)
-            assert chat.scroll_offset.y >= b2 - 1
-
-            # arrows scroll chat when completion hidden, navigate when visible
             await pilot.press("up")
             await pilot.pause(0.2)
             assert chat.scroll_offset.y < b2
+            box = app.query_one("#input", Input)
             box.value = "/re"
             app._refresh_completion("/re")
             ol = app.query_one("#completion", OptionList)
             await pilot.press("down")
             assert ol.highlighted == 1
+
+
+class TestEditorKeys:
+    def test_pi_aligned_editor_keys(self):
+        run(self._keys())
+
+    async def _keys(self):
+        app = await make_app()
+        async with app.run_test(size=(80, 24)) as pilot:
+            await pilot.pause(0.5)
+            box = app.query_one("#input", Input)
+            box.focus()
+
+            # ctrl+c clears the input
+            box.value = "draft text"
+            await pilot.press("ctrl+c")
+            assert box.value == ""
+
+            # ctrl+u deletes to line start (pi default, restored)
+            box.value = "abcdef"
+            box.cursor_position = 3
+            await pilot.press("ctrl+u")
+            assert box.value == "def"
+
+            # ctrl+d with text = delete forward (pi: deleteCharForward)
+            box.value = "abc"
+            box.cursor_position = 0
+            await pilot.press("ctrl+d")
+            assert box.value == "bc"
+
+            # double ctrl+d on empty input quits
+            box.value = ""
+            exited = []
+            app.exit = lambda: exited.append(1)  # spy instead of quitting
+            await pilot.press("ctrl+d")
+            await pilot.pause(0.2)
+            assert not exited  # first press only warns
+            chat = "\n".join(str(l.text) for l in app.query_one("#chat").lines)
+            assert "再按一次" in chat
+            await pilot.press("ctrl+d")
+            assert exited  # second press quits
+
+    def test_cursor_movement_keys(self):
+        run(self._cursor())
+
+    async def _cursor(self):
+        app = await make_app()
+        async with app.run_test() as pilot:
+            await pilot.pause(0.5)
+            box = app.query_one("#input", Input)
+            box.focus()
+            box.value = "hello world"
+            box.cursor_position = 11
+            await pilot.press("ctrl+b")           # left
+            assert box.cursor_position == 10
+            await pilot.press("ctrl+a")           # line start
+            assert box.cursor_position == 0
+            await pilot.press("ctrl+f")           # right
+            assert box.cursor_position == 1
+            await pilot.press("alt+right")        # word right
+            assert box.cursor_position == 6  # past "hello "
 
 
 class TestDispatch:
