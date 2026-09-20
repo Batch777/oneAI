@@ -19,7 +19,7 @@ from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.screen import ModalScreen
-from textual.widgets import Footer, Header, Input, Label, OptionList, RichLog
+from textual.widgets import Input, Label, OptionList, RichLog
 from textual.widgets.option_list import Option
 
 from .config import Config
@@ -143,7 +143,14 @@ class CommandInput(Input):
         Binding("alt+right", "cursor_right_word", show=False),
         Binding("ctrl+d", "ctrl_d", show=False),
         Binding("ctrl+c", "clear_input", show=False),
+        Binding("escape", "esc_normal", show=False),
     ]
+
+    def action_esc_normal(self) -> None:
+        """Esc in NORMAL mode: interrupt a running agent (pi behavior)."""
+        if self.vim_mode == "normal":
+            app: OneAIApp = self.app  # type: ignore[assignment]
+            app.abort_agent()
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -359,6 +366,8 @@ class OneAIApp(App):
         Command("reload", "重新加载扩展（~/.oneai/extensions/）"),
         Command("copy", "复制最近一条回答到剪贴板"),
         Command("new", "开启新会话（清空对话上下文）"),
+        Command("resume", "恢复历史会话", argument_hint="[序号]"),
+        Command("export", "导出当前会话为 Markdown 文件"),
         Command("vim", "开关 vim 编辑模式（默认开）", argument_hint="on|off"),
         Command("image", "在终端中预览图片（Kitty 协议，Ghostty 可用）", argument_hint="<路径>"),
         Command("vision", "带图提问（图片随问题发给模型）", argument_hint="<路径> <问题>"),
@@ -380,7 +389,7 @@ class OneAIApp(App):
         self._load_history()
 
     def compose(self) -> ComposeResult:
-        yield Header()
+        # pi-like minimal chrome: no header bar, straight into the transcript
         yield ChatLog(id="chat", markup=True, wrap=True)
         yield OptionList(id="completion")
         yield Label("", id="status")
@@ -585,22 +594,46 @@ class OneAIApp(App):
 
     @work(thread=True)
     def _start_chat(self, text: str, images: list[Path] | None = None) -> None:
+        import time
+
         shown = text + ("".join(f" 📎{p.name}" for p in images) if images else "")
         self.call_from_thread(self.chat().write, f"\n[bold cyan]❯ {shown}[/bold cyan]")
+        self._agent_running = True
+        self.call_from_thread(self.show_status, "⏳ 思考中…")
+        start = time.monotonic()
         try:
             answer = self.runtime.run_agent(text, on_event=self._on_agent_event, images=images)
         except Exception as e:
             answer = f"**错误**: {e}"
+        finally:
+            self._agent_running = False
         self._last_answer = answer
+        elapsed = time.monotonic() - start
+        tokens = (self.runtime.last_usage or {}).get("total_tokens")
+        stat = f"✔ {elapsed:.0f}s" + (f" · {tokens} tokens" if tokens else "")
         self.call_from_thread(self.chat().write, "[dim]助手[/dim]")
         self.call_from_thread(self.chat().write, Markdown(answer))
+        self.call_from_thread(self.show_status, stat, 6.0)
+        try:
+            self.runtime.save_session()
+        except OSError:
+            pass
 
     def _on_agent_event(self, kind: str, data: dict) -> None:
         if kind == "tool_start":
             args = ", ".join(f"{k}={str(v)[:40]}" for k, v in data["args"].items())
             self.call_from_thread(self.chat().write, f"[dim]  🔧 {data['name']}({args})[/dim]")
+            self.call_from_thread(self.show_status, f"🔧 {data['name']}…")
         elif kind == "tool_denied":
             self.call_from_thread(self.chat().write, f"  [yellow]⛔ {data['name']} 被拒绝[/yellow]")
+        elif kind == "text_delta":
+            self.call_from_thread(self.show_status, f"⏳ 回答中… {data['chars']} 字")
+
+    def abort_agent(self) -> None:
+        """NORMAL-mode Esc while the agent runs (pi: interrupt)."""
+        if getattr(self, "_agent_running", False):
+            self.runtime.abort()
+            self.show_status("⛔ 已中断", 3.0)
 
     def _confirm_gate(self, title: str, message: str) -> bool:
         """Called from the worker thread when a confirm-gated tool fires."""
@@ -680,6 +713,52 @@ class OneAIApp(App):
         self.runtime.reset_session()
         self.chat().write("[dim]— 新会话 —[/dim]")
 
+    def _ui_export(self, _arg: str = "") -> None:
+        """Export the conversation to a Markdown file (pi: /export)."""
+        from datetime import datetime
+
+        if not self.runtime.messages:
+            self.chat().write("[dim]当前会话为空[/dim]")
+            return
+        out_dir = self.cfg.state_path / "exports"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        path = out_dir / f"{datetime.now().strftime('%Y%m%d-%H%M%S')}.md"
+        parts = [f"# oneAI 会话导出\n\n{datetime.now().isoformat(timespec='seconds')}\n"]
+        for m in self.runtime.messages:
+            role = m.get("role")
+            content = m.get("content")
+            if isinstance(content, list):  # image attachments
+                content = " ".join("[图片]" if c.get("type") == "image_url" else c.get("text", "")
+                                   for c in content)
+            if role == "user":
+                parts.append(f"\n## ❯ 用户\n\n{content}\n")
+            elif role == "assistant":
+                parts.append(f"\n## 助手\n\n{content or ''}\n")
+            elif role == "tool":
+                parts.append(f"\n<details><summary>tool result</summary>\n\n```\n{str(content)[:500]}\n```\n</details>\n")
+        path.write_text("".join(parts), encoding="utf-8")
+        self.chat().write(f"[green]✔ 已导出: {path}[/green]")
+
+    def _ui_resume(self, arg: str = "") -> None:
+        sessions = self.runtime.list_sessions()
+        if not sessions:
+            self.chat().write("[dim]没有历史会话[/dim]")
+            return
+        if not arg.strip():
+            self.chat().write("[bold]历史会话：[/bold]")
+            for i, p in enumerate(sessions[:10], 1):
+                lines = sum(1 for _ in p.open())
+                self.chat().write(f"  {i}. {p.name}  ({lines} 条消息)")
+            self.chat().write("[dim]/resume <序号> 恢复[/dim]")
+            return
+        try:
+            path = sessions[int(arg) - 1]
+        except (ValueError, IndexError):
+            self.chat().write(f"[red]无效序号: {arg}[/red]")
+            return
+        n = self.runtime.load_session(path)
+        self.chat().write(f"[green]✔ 已恢复会话 {path.name}（{n} 条消息）[/green]")
+
 
 def run() -> None:
     app = OneAIApp()
@@ -688,6 +767,8 @@ def run() -> None:
         "help": app._ui_help, "copy": app._ui_copy, "inbox": app._ui_inbox,
         "reindex": app._ui_reindex, "reload": app._ui_reload,
         "new": app._ui_new,
+        "resume": app._ui_resume,
+        "export": app._ui_export,
         "vim": app._ui_vim,
         "image": app._ui_image,
         "vision": app._ui_vision,

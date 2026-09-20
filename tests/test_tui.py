@@ -44,7 +44,7 @@ class TestCompletion:
 
             box.value = "/re"
             app._refresh_completion("/re")
-            assert ol.option_count == 2
+            assert ol.option_count == 3  # reindex, reload, resume
 
             app.move_completion(1)
             app.apply_completion()
@@ -219,10 +219,11 @@ class TestHistory:
             await pilot.press("down")
             assert box.value == "draft"  # draft restored
 
-            # consecutive duplicates skipped (pi semantics)
+            # consecutive duplicates skipped, non-consecutive kept (pi semantics)
             await submit(pilot, app, "/help")
             await submit(pilot, app, "/help")
-            assert app.input_history.count("/help") == 1
+            assert app.input_history[0] == "/help"
+            assert app.input_history.count("/help") == 2  # not adjacent → kept
 
             # persisted to file
             content = (tmp_path / "input_history.txt").read_text()

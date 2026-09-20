@@ -72,7 +72,14 @@ class Runtime:
         self.messages: list[dict] = []  # conversation history (multi-turn)
         self.llm = LLM(cfg) if cfg.deepseek_api_key else None
         self.log = EventLog(cfg.events_log)
+        self._abort = False
+        self.last_usage: dict = {}
+        self.session_path: Path | None = None
         self._register_builtin_tools()
+
+    def abort(self) -> None:
+        """Esc-interrupt (pi behavior): the in-flight LLM call is dropped."""
+        self._abort = True
 
     # --- extension API (registries + hooks) --------------------------------
 
@@ -216,6 +223,43 @@ class Runtime:
 
     # --- agent loop ------------------------------------------------------------
 
+    def _call_llm(self, messages: list[dict], tool_schemas: list[dict],
+                  on_text_delta: Callable[[int], None] | None):
+        """Streaming completion; returns (content, tool_calls, usage).
+        Abort-aware: a set abort flag breaks the stream immediately."""
+        stream = self.llm.client.chat.completions.create(
+            model=self.llm.model,
+            messages=messages,
+            tools=tool_schemas,
+            stream=True,
+            stream_options={"include_usage": True},
+        )
+        content_parts: list[str] = []
+        tool_calls: dict[int, dict] = {}
+        usage: dict = {}
+        for chunk in stream:
+            if self._abort:
+                stream.close()
+                break
+            if getattr(chunk, "usage", None):
+                usage = chunk.usage.model_dump()
+            if not chunk.choices:
+                continue
+            delta = chunk.choices[0].delta
+            if delta.content:
+                content_parts.append(delta.content)
+                if on_text_delta:
+                    on_text_delta(sum(len(p) for p in content_parts))
+            for tc in delta.tool_calls or []:
+                slot = tool_calls.setdefault(tc.index, {"id": "", "name": "", "arguments": ""})
+                if tc.id:
+                    slot["id"] = tc.id
+                if tc.function and tc.function.name:
+                    slot["name"] += tc.function.name
+                if tc.function and tc.function.arguments:
+                    slot["arguments"] += tc.function.arguments
+        return "".join(content_parts), list(tool_calls.values()), usage
+
     def _system_prompt(self) -> str:
         extra = self.emit_collect("before_agent_start")
         parts = [SYSTEM + _identity_context(self.cfg)]
@@ -243,34 +287,39 @@ class Runtime:
         ]
 
         for _ in range(max_iters):
-            resp = self.llm.client.chat.completions.create(
-                model=self.llm.model,
-                messages=[{"role": "system", "content": self._system_prompt()}] + self.messages,
-                tools=tool_schemas,
+            if self._abort:
+                return "（已中断）"
+            content, tool_calls, usage = self._call_llm(
+                [{"role": "system", "content": self._system_prompt()}] + self.messages,
+                tool_schemas,
+                lambda n: on_event and on_event("text_delta", {"chars": n}),
             )
-            msg = resp.choices[0].message
+            self.last_usage = usage
+            if self._abort:
+                return "（已中断）"
 
-            if not msg.tool_calls:
-                self.messages.append({"role": "assistant", "content": msg.content or ""})
+            if not tool_calls:
+                self.messages.append({"role": "assistant", "content": content})
                 self.emit("agent_end")
-                return msg.content or ""
+                return content
 
-            # Preserve reasoning_content — DeepSeek reasoning models require it
-            # on assistant messages in multi-turn context.
             assistant: dict[str, Any] = {
                 "role": "assistant",
-                "content": msg.content or "",
-                "tool_calls": [tc.model_dump() for tc in msg.tool_calls],
+                "content": content,
+                "tool_calls": [
+                    {"id": tc["id"], "type": "function",
+                     "function": {"name": tc["name"], "arguments": tc["arguments"]}}
+                    for tc in tool_calls
+                ],
             }
-            rc = getattr(msg, "reasoning_content", None)
-            if rc:
-                assistant["reasoning_content"] = rc
             self.messages.append(assistant)
 
-            for tc in msg.tool_calls:
-                name = tc.function.name
+            for tc in tool_calls:
+                if self._abort:
+                    return "（已中断）"
+                name = tc["name"]
                 try:
-                    args = json.loads(tc.function.arguments or "{}")
+                    args = json.loads(tc["arguments"] or "{}")
                 except json.JSONDecodeError:
                     args = {}
                 on_event and on_event("tool_start", {"name": name, "args": args})
@@ -293,9 +342,34 @@ class Runtime:
                         result = f"工具执行出错: {e}"
                 self.emit("tool_result", name=name, result=result)
                 on_event and on_event("tool_end", {"name": name, "result": result[:200]})
-                self.messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
+                self.messages.append({"role": "tool", "tool_call_id": tc["id"], "content": result})
 
         return "（达到工具调用上限，请缩小问题范围）"
 
+    # --- sessions (pi: session persistence) ------------------------------------
+
+    def save_session(self) -> Path:
+        """Persist the conversation to state/sessions/<id>.jsonl."""
+        if self.session_path is None:
+            from datetime import datetime
+
+            ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+            self.session_path = self.cfg.state_path / "sessions" / f"{ts}-{new_id()}.jsonl"
+        self.session_path.parent.mkdir(parents=True, exist_ok=True)
+        with self.session_path.open("w", encoding="utf-8") as f:
+            for m in self.messages:
+                f.write(json.dumps(m, ensure_ascii=False, default=str) + "\n")
+        return self.session_path
+
+    def load_session(self, path: Path) -> int:
+        self.messages = [json.loads(l) for l in path.read_text(encoding="utf-8").splitlines() if l.strip()]
+        self.session_path = path
+        return len(self.messages)
+
+    def list_sessions(self) -> list[Path]:
+        d = self.cfg.state_path / "sessions"
+        return sorted(d.glob("*.jsonl"), reverse=True) if d.exists() else []
+
     def reset_session(self) -> None:
         self.messages = []
+        self.session_path = None

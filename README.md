@@ -27,8 +27,12 @@ oneai tui                        # 启动主界面
 
 - 对话式问答：agent 自主调用 `vault_search`/`vault_read`，回答附 `[[path#Lx-Ly]]` 引用
 - `/draft <指令>` 或对话中要求起草 → 弹确认门（y/n）→ 手稿存 `inbox/drafts/`（status: drafted）
-- `/help` `/inbox` `/reindex` `/reload` `/copy` `/new` `/clear` `/quit`
-- 输入 `/` 实时显示命令提示，Tab 补全；Option+拖拽终端原生选择
+- `/help` `/inbox` `/reindex` `/reload` `/copy` `/new` `/resume` `/export` `/vim` `/image` `/vision` `/clear` `/quit`
+- Vim 模式（默认开）：Esc/jk 切 NORMAL，h/l/w/b/e 移动，diw/ciw/di" 等 text objects，j/k 翻输入历史
+- 输入历史持久化（~/.oneai/state/input_history.txt），↑/↓ 翻历史
+- Esc（NORMAL 下）中断 agent；状态行显示思考/回答进度与 token 用量
+- 会话自动保存，`/resume` 恢复；`/export` 导出 Markdown
+- 输入 `/` 弹出竖向补全菜单（↑↓ 选择，Tab/Enter 选中）；Shift+拖拽复制，`/copy` 复制最近回答
 
 ## 扩展系统（pi 风格）
 

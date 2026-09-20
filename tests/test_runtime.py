@@ -26,6 +26,29 @@ class FakeMessage:
         self.reasoning_content = None
 
 
+class FakeStream:
+    """Mimics an OpenAI streaming response (runtime now uses stream=True)."""
+
+    def __init__(self, msg):
+        self.msg = msg
+
+    def __iter__(self):
+        delta = SimpleNamespace(content=self.msg.content, tool_calls=None)
+        if self.msg.tool_calls:
+            delta.tool_calls = [
+                SimpleNamespace(index=i, id=tc.id,
+                                function=SimpleNamespace(name=tc.function.name,
+                                                         arguments=tc.function.arguments))
+                for i, tc in enumerate(self.msg.tool_calls)
+            ]
+        yield SimpleNamespace(choices=[SimpleNamespace(delta=delta)], usage=None)
+        yield SimpleNamespace(choices=[],
+                              usage=SimpleNamespace(model_dump=lambda: {"total_tokens": 10}))
+
+    def close(self):
+        pass
+
+
 class FakeCompletions:
     """Queue of canned responses; each create() pops the next."""
 
@@ -34,9 +57,8 @@ class FakeCompletions:
         self.calls = 0
 
     def create(self, **kwargs):
-        msg = self.responses.pop(0)
         self.calls += 1
-        return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
+        return FakeStream(self.responses.pop(0))
 
 
 def make_runtime(tmp_path, responses, monkeypatch) -> Runtime:
@@ -65,7 +87,8 @@ class TestToolLoop:
         events = []
         answer = rt.run_agent("test", on_event=lambda k, d: events.append(k))
         assert answer == "回声是 hi"
-        assert events == ["tool_start", "tool_end"]
+        assert "tool_start" in events and "tool_end" in events
+        assert "text_delta" in events  # streaming deltas fire too
         # history: user, assistant(tool_calls), tool, assistant(answer)
         assert [m["role"] for m in rt.messages] == ["user", "assistant", "tool", "assistant"]
         assert rt.messages[2]["content"] == "echo:hi"
@@ -122,6 +145,25 @@ class TestToolLoop:
         for name in ("vault_search", "vault_read", "draft_save", "image_find", "image_show"):
             assert name in rt.tools
         assert rt.tools["draft_save"].confirm is True
+
+    def test_abort_interrupts(self, tmp_path, monkeypatch):
+        rt = make_runtime(tmp_path, [FakeMessage(content="不会被返回")], monkeypatch)
+        rt.abort()  # Esc pressed before/during the call
+        assert rt.run_agent("test") == "（已中断）"
+
+    def test_session_save_load(self, tmp_path, monkeypatch):
+        rt = make_runtime(tmp_path, [FakeMessage(content="回答")], monkeypatch)
+        rt.run_agent("问题")
+        path = rt.save_session()
+        assert path.exists()
+
+        rt2 = make_runtime(tmp_path, [], monkeypatch)
+        n = rt2.load_session(path)
+        assert n == 2  # user + assistant
+        assert rt2.messages[0]["content"] == "问题"
+        assert path in rt2.list_sessions()
+        rt2.reset_session()
+        assert rt2.messages == [] and rt2.session_path is None
 
 
 class TestExtensionSystem:
