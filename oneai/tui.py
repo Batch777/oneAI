@@ -1,33 +1,55 @@
-"""Terminal UI for oneAI.
+"""Terminal UI for oneAI — slash-command driven (modeled after pi's design).
 
-Layout: chat log on top, input + action buttons at the bottom.
-- 发送 (Send): ask a question, answered with [[path#Lx-Ly]] citations
-- 搜索 (Search): raw vault search without LLM
-- AI Draft: generate a manuscript into inbox/drafts/ — the ONLY way drafts
-  are created (per the 2026-09-20 decision: never automatic)
-- Inbox: list captured notes / drafts awaiting review
-- Ctrl+Q: quit
+Like pi (dist/core/slash-commands.js): a flat command registry of
+{name, description, argumentHint}, dispatched on submit. Text without a
+leading '/' goes straight to the assistant as a question.
+
+Commands:
+  /search <query>   本地全文检索（不调用 LLM）
+  /draft <指令>     生成手稿到 inbox/drafts/ —— 唯一的起草入口（绝不自动）
+  /inbox            列出待处理捕获与手稿
+  /reindex          重建检索索引（改过笔记后用）
+  /copy             复制最近一条回答到剪贴板
+  /help             显示帮助
+  /quit             退出（或 Ctrl+Q）
 """
 from __future__ import annotations
 
 import subprocess
+from dataclasses import dataclass
 
 from textual import work
 from textual.app import App, ComposeResult
-from textual.containers import Horizontal
-from textual.widgets import Button, Footer, Header, Input, RichLog
+from textual.widgets import Footer, Header, Input, RichLog
 
 from .agent import ask, draft_manuscript
 from .config import Config
 from .indexer import Index
 
 
+@dataclass
+class Command:
+    name: str
+    description: str
+    argument_hint: str = ""
+
+
+# Flat registry, pi-style. Adding a command = one entry + one handler method.
+COMMANDS = [
+    Command("search", "本地全文检索（不调用 LLM）", "<关键词>"),
+    Command("draft", "生成手稿到 inbox/drafts/（仅此入口，绝不自动）", "<起草指令>"),
+    Command("inbox", "列出待处理捕获与手稿"),
+    Command("reindex", "重建检索索引"),
+    Command("copy", "复制最近一条回答到剪贴板"),
+    Command("help", "显示本帮助"),
+    Command("quit", "退出"),
+]
+
+
 class OneAIApp(App):
     CSS = """
     #chat { height: 1fr; border: solid $primary; }
-    #controls { height: auto; padding: 1 0; }
-    #controls Input { width: 1fr; }
-    #controls Button { margin-left: 1; }
+    #input { height: auto; }
     """
 
     BINDINGS = [("ctrl+q", "quit", "退出")]
@@ -40,54 +62,97 @@ class OneAIApp(App):
     def compose(self) -> ComposeResult:
         yield Header()
         yield RichLog(id="chat", markup=True, wrap=True)
-        with Horizontal(id="controls"):
-            yield Input(placeholder="输入问题或起草指令…", id="input")
-            yield Button("发送", id="send", variant="primary")
-            yield Button("搜索", id="search")
-            yield Button("AI Draft", id="draft", variant="warning")
-            yield Button("Inbox", id="inbox")
-            yield Button("复制", id="copy")
+        yield Input(placeholder="直接输入提问；/ 开头为命令，/help 查看全部", id="input")
         yield Footer()
 
     def on_mount(self) -> None:
         self.title = "oneAI"
         self.chat().write(f"[dim]Vault: {self.cfg.vault_path}[/dim]")
-        self.chat().write("[dim]模型: " + self.cfg.model + " — 提问后点「发送」，起草点「AI Draft」[/dim]")
-        self.chat().write("[dim]复制：点「复制」拷贝最近回答；或按住 Option 拖拽做终端原生选择[/dim]")
+        self.chat().write(f"[dim]模型: {self.cfg.model}[/dim]")
+        self.chat().write("[dim]选中复制：按住 Option 拖拽；或用 /copy 复制最近回答[/dim]")
         self.query_one("#input", Input).focus()
 
     def chat(self) -> RichLog:
         return self.query_one("#chat", RichLog)
 
-    def _input_text(self) -> str:
-        box = self.query_one("#input", Input)
-        text = box.value.strip()
-        box.value = ""
-        return text
-
-    # --- actions ---------------------------------------------------------
+    # --- dispatch (pi-style: "/cmd ..." → handler, else → chat) -----------
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        self._start_chat(event.value.strip())
+        text = event.value.strip()
         self.query_one("#input", Input).value = ""
+        if not text:
+            return
+        if not text.startswith("/"):
+            self._start_chat(text)
+            return
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        bid = event.button.id
-        if bid == "send":
-            self._start_chat(self._input_text())
-        elif bid == "search":
-            self._do_search(self._input_text())
-        elif bid == "draft":
-            self._start_draft(self._input_text())
-        elif bid == "inbox":
-            self._show_inbox()
-        elif bid == "copy":
-            self._copy_last()
+        name, _, arg = text[1:].partition(" ")
+        arg = arg.strip()
+        handler = getattr(self, f"cmd_{name}", None)
+        if handler is None:
+            self.chat().write(f"[red]未知命令: /{name}[/red] — 输入 /help 查看全部命令")
+        elif arg or not self._hint(name):
+            handler(arg) if arg else handler()
+        else:
+            self.chat().write(f"[yellow]/{name} 需要参数: {self._hint(name)}[/yellow]")
+
+    def _hint(self, name: str) -> str:
+        return next((c.argument_hint for c in COMMANDS if c.name == name), "")
+
+    # --- commands ----------------------------------------------------------
+
+    def cmd_help(self) -> None:
+        self.chat().write("[bold]命令一览：[/bold]")
+        for c in COMMANDS:
+            hint = f" [dim]{c.argument_hint}[/dim]" if c.argument_hint else ""
+            self.chat().write(f"  [bold cyan]/{c.name}[/bold cyan]{hint}  {c.description}")
+        self.chat().write("[dim]不带 / 的输入直接作为问题提问（回答附 [[path#Lx-Ly]] 引用）[/dim]")
+
+    def cmd_quit(self) -> None:
+        self.exit()
+
+    def cmd_copy(self) -> None:
+        if not self._last_answer:
+            self.chat().write("[dim]还没有可复制的回答[/dim]")
+            return
+        try:
+            subprocess.run(["pbcopy"], input=self._last_answer.encode(), check=True)
+            self.chat().write(f"[dim]✔ 已复制最近回答（{len(self._last_answer)} 字符）[/dim]")
+        except Exception as e:
+            self.chat().write(f"[red]复制失败: {e}[/red]")
+
+    def cmd_search(self, query: str) -> None:
+        index = Index(self.cfg.index_db)
+        results = index.search(query, k=5)
+        index.close()
+        self.chat().write(f"\n[bold yellow]搜索:[/bold yellow] {query}")
+        if not results:
+            self.chat().write("[dim]无结果[/dim]")
+        for r in results:
+            self.chat().write(f"  [bold]{r.citation}[/bold] [{r.heading}]\n  [dim]{r.snippet}[/dim]")
+
+    def cmd_reindex(self) -> None:
+        index = Index(self.cfg.index_db)
+        n = index.rebuild(self.cfg.vault_path)
+        index.close()
+        self.chat().write(f"[green]✔ 索引已重建（{n} 个 chunk）[/green]")
+
+    def cmd_inbox(self) -> None:
+        inbox = self.cfg.vault_path / "inbox"
+        files = sorted(inbox.rglob("*.md")) if inbox.exists() else []
+        self.chat().write("\n[bold yellow]Inbox:[/bold yellow]")
+        if not files:
+            self.chat().write("[dim]（空）[/dim]")
+        for f in files:
+            self.chat().write(f"  {f.relative_to(self.cfg.vault_path)}")
+
+    def cmd_draft(self, instruction: str) -> None:
+        self._start_draft(instruction)
+
+    # --- async workers (LLM calls don't block the UI) -----------------------
 
     @work(thread=True)
     def _start_chat(self, text: str) -> None:
-        if not text:
-            return
         self.chat().write(f"\n[bold cyan]你:[/bold cyan] {text}")
         try:
             answer = ask(self.cfg, text)
@@ -96,23 +161,8 @@ class OneAIApp(App):
         self._last_answer = answer
         self.chat().write(f"[bold green]助手:[/bold green] {answer}")
 
-    def _do_search(self, text: str) -> None:
-        if not text:
-            return
-        index = Index(self.cfg.index_db)
-        results = index.search(text, k=5)
-        index.close()
-        self.chat().write(f"\n[bold yellow]搜索:[/bold yellow] {text}")
-        if not results:
-            self.chat().write("[dim]无结果[/dim]")
-        for r in results:
-            self.chat().write(f"  [bold]{r.citation}[/bold] [{r.heading}]\n  [dim]{r.snippet}[/dim]")
-
     @work(thread=True)
     def _start_draft(self, instruction: str) -> None:
-        if not instruction:
-            self.chat().write("[dim]先在输入框写下起草指令，再点 AI Draft[/dim]")
-            return
         self.chat().write(f"\n[bold magenta]起草中:[/bold magenta] {instruction}")
         try:
             path = draft_manuscript(self.cfg, instruction)
@@ -123,26 +173,6 @@ class OneAIApp(App):
             )
         except Exception as e:
             self.chat().write(f"[red]起草失败: {e}[/red]")
-
-    def _copy_last(self) -> None:
-        """Copy the most recent assistant answer to the macOS clipboard."""
-        if not self._last_answer:
-            self.chat().write("[dim]还没有可复制的回答[/dim]")
-            return
-        try:
-            subprocess.run(["pbcopy"], input=self._last_answer.encode(), check=True)
-            self.chat().write(f"[dim]✔ 已复制最近回答（{len(self._last_answer)} 字符）[/dim]")
-        except Exception as e:
-            self.chat().write(f"[red]复制失败: {e}[/red]")
-
-    def _show_inbox(self) -> None:
-        inbox = self.cfg.vault_path / "inbox"
-        files = sorted(inbox.rglob("*.md")) if inbox.exists() else []
-        self.chat().write("\n[bold yellow]Inbox:[/bold yellow]")
-        if not files:
-            self.chat().write("[dim]（空）[/dim]")
-        for f in files:
-            self.chat().write(f"  {f.relative_to(self.cfg.vault_path)}")
 
 
 def run() -> None:
