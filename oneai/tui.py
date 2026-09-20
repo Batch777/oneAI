@@ -10,6 +10,8 @@ Layout: chat log on top, input + action buttons at the bottom.
 """
 from __future__ import annotations
 
+import subprocess
+
 from textual import work
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal
@@ -33,6 +35,7 @@ class OneAIApp(App):
     def __init__(self) -> None:
         super().__init__()
         self.cfg = Config.load()
+        self._last_answer: str = ""
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -43,12 +46,14 @@ class OneAIApp(App):
             yield Button("搜索", id="search")
             yield Button("AI Draft", id="draft", variant="warning")
             yield Button("Inbox", id="inbox")
+            yield Button("复制", id="copy")
         yield Footer()
 
     def on_mount(self) -> None:
         self.title = "oneAI"
         self.chat().write(f"[dim]Vault: {self.cfg.vault_path}[/dim]")
         self.chat().write("[dim]模型: " + self.cfg.model + " — 提问后点「发送」，起草点「AI Draft」[/dim]")
+        self.chat().write("[dim]复制：点「复制」拷贝最近回答；或按住 Option 拖拽做终端原生选择[/dim]")
         self.query_one("#input", Input).focus()
 
     def chat(self) -> RichLog:
@@ -76,6 +81,8 @@ class OneAIApp(App):
             self._start_draft(self._input_text())
         elif bid == "inbox":
             self._show_inbox()
+        elif bid == "copy":
+            self._copy_last()
 
     @work(thread=True)
     def _start_chat(self, text: str) -> None:
@@ -86,6 +93,7 @@ class OneAIApp(App):
             answer = ask(self.cfg, text)
         except Exception as e:  # surface API errors in the chat
             answer = f"[red]错误: {e}[/red]"
+        self._last_answer = answer
         self.chat().write(f"[bold green]助手:[/bold green] {answer}")
 
     def _do_search(self, text: str) -> None:
@@ -115,6 +123,17 @@ class OneAIApp(App):
             )
         except Exception as e:
             self.chat().write(f"[red]起草失败: {e}[/red]")
+
+    def _copy_last(self) -> None:
+        """Copy the most recent assistant answer to the macOS clipboard."""
+        if not self._last_answer:
+            self.chat().write("[dim]还没有可复制的回答[/dim]")
+            return
+        try:
+            subprocess.run(["pbcopy"], input=self._last_answer.encode(), check=True)
+            self.chat().write(f"[dim]✔ 已复制最近回答（{len(self._last_answer)} 字符）[/dim]")
+        except Exception as e:
+            self.chat().write(f"[red]复制失败: {e}[/red]")
 
     def _show_inbox(self) -> None:
         inbox = self.cfg.vault_path / "inbox"

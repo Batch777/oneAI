@@ -24,7 +24,11 @@ CREATE VIRTUAL TABLE IF NOT EXISTS chunks USING fts5(
 """
 
 MAX_CHUNK_CHARS = 1200
-MIN_CHUNK_CHARS = 200  # smaller chunks get merged into the following one
+MIN_CHUNK_CHARS = 60  # only merge near-empty chunks (lone headings) into the next
+
+# Generated artifacts are NOT knowledge sources — never index them,
+# otherwise stale drafts feed back into answers.
+EXCLUDED_PREFIXES = ("inbox/drafts",)
 
 
 @dataclass
@@ -48,6 +52,14 @@ def _strip_frontmatter(text: str) -> tuple[str, int]:
         stripped = text[m.end():]
         return stripped, text[: m.end()].count("\n") + 1
     return text, 1
+
+
+def _frontmatter_title(text: str) -> str:
+    m = re.match(r"\A---\n(.*?)\n---\n", text, re.DOTALL)
+    if not m:
+        return ""
+    t = re.search(r"^title:\s*(.+)$", m.group(1), re.MULTILINE)
+    return t.group(1).strip().strip('"\'') if t else ""
 
 
 def chunk_markdown(text: str) -> list[tuple[int, int, str, str]]:
@@ -130,18 +142,25 @@ class Index:
         self.conn.executescript(SCHEMA)
         n = 0
         for md in sorted(vault.rglob("*.md")):
+            if str(md.relative_to(vault)).startswith(EXCLUDED_PREFIXES):
+                continue
             n += self.index_file(vault, md)
         self.conn.commit()
         return n
 
     def index_file(self, vault: Path, path: Path) -> int:
         rel = str(path.relative_to(vault))
-        body, offset = _strip_frontmatter(path.read_text(encoding="utf-8"))
+        if rel.startswith(EXCLUDED_PREFIXES):
+            return 0
+        raw = path.read_text(encoding="utf-8")
+        body, offset = _strip_frontmatter(raw)
+        title = _frontmatter_title(raw)  # indexed into every chunk for recall
         self.conn.execute("DELETE FROM chunks WHERE path = ?", (rel,))
         chunks = chunk_markdown(body)
         self.conn.executemany(
             "INSERT INTO chunks (text, heading, path, start_line, end_line) VALUES (?,?,?,?,?)",
-            [(t, h, rel, s + offset - 1, e + offset - 1) for s, e, h, t in chunks],
+            [(f"{title}\n{t}" if title else t, h, rel, s + offset - 1, e + offset - 1)
+             for s, e, h, t in chunks],
         )
         self.conn.commit()
         return len(chunks)

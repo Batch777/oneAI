@@ -36,9 +36,21 @@ def build_context(results: list[SearchResult]) -> str:
     return "\n\n".join(blocks)
 
 
+EXPAND_SYSTEM = """把用户的问题改写为一组用于全文检索的关键词。
+包含同义词和相关实体（例如「学历」应展开为 学历 教育 本科 硕士 学校 GPA）。
+用空格分隔，不超过 12 个词，只输出关键词，不要解释。"""
+
+
 def ask(cfg: Config, question: str, k: int = 8) -> str:
+    llm = LLM(cfg)
+    # Query expansion: bridge the vocabulary gap between question and notes
+    # (lexical search can't match 学历 -> 教育/本科/硕士 on its own).
+    try:
+        expansion = llm.chat(EXPAND_SYSTEM, question)
+    except Exception:
+        expansion = ""
     index = Index(cfg.index_db)
-    results = index.search(question, k=k)
+    results = index.search(f"{question} {expansion}", k=k)
     index.close()
     log = EventLog(cfg.events_log)
 
@@ -46,8 +58,8 @@ def ask(cfg: Config, question: str, k: int = 8) -> str:
         log.emit("ask", question=question, hits=0)
         return "No relevant notes found in the vault. Try `oneai index` first, or add notes."
 
-    answer = LLM(cfg).chat(SYSTEM + _identity_context(cfg),
-                           f"Context:\n{build_context(results)}\n\nQuestion: {question}")
+    answer = llm.chat(SYSTEM + _identity_context(cfg),
+                      f"Context:\n{build_context(results)}\n\nQuestion: {question}")
     log.emit("ask", question=question, hits=len(results),
              sources=[r.citation for r in results])
 
