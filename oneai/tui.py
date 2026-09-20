@@ -128,7 +128,7 @@ class OneAIApp(App):
         self.chat().write(f"[dim]Vault: {self.cfg.vault_path} · 模型: {self.cfg.model}[/dim]")
         if loaded:
             self.chat().write(f"[dim]已加载扩展: {', '.join(loaded)}[/dim]")
-        self.chat().write("[dim]复制：鼠标直接框选 + Cmd+C；/copy 复制最近回答[/dim]")
+        self.runtime.image_display_cb = self._display_image_agent
         self.query_one("#input", Input).focus()
 
     def chat(self) -> RichLog:
@@ -305,16 +305,29 @@ class OneAIApp(App):
         if not arg or not path.exists():
             self.chat().write("[yellow]用法: /image <图片路径>[/yellow]")
             return
-        if not img.supports_kitty():
-            subprocess.run(["open", str(path)])
-            self.chat().write(f"[dim]当前终端不支持 Kitty 图形协议，已用系统预览打开 {path.name}[/dim]")
-            return
         with self.suspend():  # leave alt-screen, draw into normal screen
-            img.display(path)
+            fallback = img.display(path)
+            if fallback:
+                subprocess.run(["open", str(path)])
+                print(fallback + "（终端不支持内联显示，已用系统预览打开）")
             try:
-                input("（图片已显示，回车返回 oneAI）")
+                input("（回车返回 oneAI）")
             except EOFError:
                 pass
+
+    def _display_image_agent(self, path: Path) -> None:
+        """Called by the runtime (worker thread) when the agent shows an image."""
+        from . import images as img
+
+        def _show() -> None:
+            with self.suspend():
+                img.display(path)
+                try:
+                    input(f"（agent 显示了 {path.name}，回车返回）")
+                except EOFError:
+                    pass
+
+        self.call_from_thread(_show)
 
     def _ui_vision(self, arg: str = "") -> None:
         path_str, _, question = arg.partition(" ")

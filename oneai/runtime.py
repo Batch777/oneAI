@@ -56,13 +56,16 @@ SYSTEM = """你是 oneAI，用户的个人助理。
 - 来自 vault 的每条信息必须标注引用 [[path#Lx-Ly]]。
 - 需要看完整笔记时用 vault_read。
 - 起草手稿（邮件、自我介绍等）时：先用 vault_search 收集事实，撰写正文，
-  然后调用 draft_save 保存（会向用户弹窗确认）。绝不发送任何内容。"""
+  然后调用 draft_save 保存（会向用户弹窗确认）。绝不发送任何内容。
+- 用户想查看图片时：先用 image_find 或 vault_search 找到图片路径，
+  再用 image_show 显示。"""
 
 
 class Runtime:
     def __init__(self, cfg: Config, confirm: ConfirmFn | None = None):
         self.cfg = cfg
         self.confirm_cb = confirm
+        self.image_display_cb: Callable[[Path], None] | None = None  # set by the TUI
         self.tools: dict[str, Tool] = {}
         self.commands: dict[str, Command] = {}
         self.hooks: dict[str, list[Callable]] = {}
@@ -172,6 +175,43 @@ class Runtime:
                 "required": ["title", "body"]},
             func=draft_save,
             confirm=True,  # permission gate
+        ))
+
+        def image_find(query: str = "") -> str:
+            from .images import find_image_references
+
+            refs = find_image_references(self.cfg.vault_path)
+            if query:
+                refs = [r for r in refs if query.lower() in (r["ref"] + r["note"]).lower()]
+            if not refs:
+                return "（vault 中未找到图片引用）"
+            return json.dumps(refs, ensure_ascii=False, indent=1)
+
+        def image_show(path: str) -> str:
+            p = Path(path).expanduser()
+            if not p.is_absolute():
+                p = self.cfg.vault_path / path
+            if not p.exists():
+                return f"图片不存在: {p}"
+            if self.image_display_cb:
+                self.image_display_cb(p)
+                return f"已在终端显示图片 {p.name}"
+            return f"图片位于 {p}（当前界面不支持显示）"
+
+        self.register_tool(Tool(
+            name="image_find",
+            description="在 vault 笔记中查找图片引用（Markdown 嵌入或图片文件路径）。返回 JSON 列表。",
+            parameters={"type": "object", "properties": {
+                "query": {"type": "string", "description": "过滤关键词，可选"}}},
+            func=image_find,
+        ))
+        self.register_tool(Tool(
+            name="image_show",
+            description="在终端中显示一张图片（Kitty 图形协议）。参数为绝对路径或 vault 相对路径。",
+            parameters={"type": "object", "properties": {
+                "path": {"type": "string", "description": "图片路径"}},
+                "required": ["path"]},
+            func=image_show,
         ))
 
     # --- agent loop ------------------------------------------------------------

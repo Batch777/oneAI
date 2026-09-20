@@ -1,61 +1,130 @@
-"""Image helpers: Kitty graphics protocol display + base64 data URLs for the LLM.
+"""Image display — pi-faithful Kitty graphics protocol implementation.
 
-Kitty protocol is supported by Ghostty/Kitty/WezTerm (same approach as pi-tui's
-Image component). Falls back to macOS `open` elsewhere.
+Ported from pi-tui's terminal-image.js:
+- encodeKitty: a=T,f=100,q=2, C=1 (no cursor move), c/r cell sizing, m= chunking
+- capability detection via env vars (Ghostty/Kitty/WezTerm → kitty), tmux → off
+- cell-size calculation preserving aspect ratio (terminal cells are ~2x tall)
+- text fallback: [Image: ~/path [mime] WxH]
+
+Also: vault image-reference scanning so the agent can find images itself.
 """
 from __future__ import annotations
 
 import base64
 import io
 import os
+import re
 import sys
 from pathlib import Path
 
 IMG_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
+CHUNK_SIZE = 4096
+CELL_ASPECT = 0.5  # cell widthPx / heightPx heuristic (pi queries CSI 16t; we assume ~10x20)
+MAX_COLS = 60
+MAX_ROWS = 30
 
+
+# --- capability detection (pi: detectCapabilitiesFromEnvironment) -----------
+
+def supports_kitty() -> bool:
+    if os.environ.get("TMUX") or os.environ.get("TERM", "").startswith(("tmux", "screen")):
+        return False
+    override = os.environ.get("ONEAI_IMAGE_PROTOCOL", "").lower()
+    if override:
+        return override == "kitty"
+    term = (os.environ.get("TERM_PROGRAM", "") + " " + os.environ.get("TERM", "")).lower()
+    return any(k in term for k in ("ghostty", "kitty", "wezterm")) or bool(
+        os.environ.get("KITTY_WINDOW_ID") or os.environ.get("GHOSTTY_RESOURCES_DIR")
+    )
+
+
+# --- encoding (pi: encodeKitty) ----------------------------------------------
 
 def _to_png(path: Path) -> bytes:
-    """Load any common image format and return PNG bytes (f=100)."""
     from PIL import Image
 
     with Image.open(path) as im:
+        dims = im.size
         if im.mode not in ("RGB", "RGBA"):
             im = im.convert("RGB")
         buf = io.BytesIO()
         im.save(buf, format="PNG")
-        return buf.getvalue()
+    _last_dims[path] = dims
+    return buf.getvalue()
 
 
-def kitty_sequence(png: bytes) -> str:
-    """Build a Kitty graphics transmit+display sequence (chunked base64)."""
+_last_dims: dict[Path, tuple[int, int]] = {}
+
+
+def calculate_cell_size(width_px: int, height_px: int, max_cols: int = MAX_COLS) -> tuple[int, int]:
+    """Fit image into (columns, rows) preserving aspect ratio (pi: calculateImageCellSize)."""
+    cols = max_cols
+    rows = max(1, round(cols * (height_px / width_px) * CELL_ASPECT))
+    if rows > MAX_ROWS:
+        rows = MAX_ROWS
+        cols = max(1, round(rows / (height_px / width_px) / CELL_ASPECT))
+    return cols, rows
+
+
+def encode_kitty(png: bytes, columns: int | None = None, rows: int | None = None,
+                 image_id: int | None = None) -> str:
+    """Kitty transmit+display sequence. C=1 keeps the cursor in place."""
+    params = ["a=T", "f=100", "q=2", "C=1"]
+    if columns:
+        params.append(f"c={columns}")
+    if rows:
+        params.append(f"r={rows}")
+    if image_id:
+        params.append(f"i={image_id}")
     b64 = base64.standard_b64encode(png).decode()
-    chunks = [b64[i : i + 4096] for i in range(0, len(b64), 4096)]
-    parts = []
+    chunks = [b64[i : i + CHUNK_SIZE] for i in range(0, len(b64), CHUNK_SIZE)]
+    out = []
     for i, chunk in enumerate(chunks):
-        m = 1 if i < len(chunks) - 1 else 0
-        ctl = "a=T,f=100,q=2" if i == 0 else f"m={m}"
         if i == 0:
-            ctl += f",m={m}"
-        parts.append(f"\x1b_G{ctl};{chunk}\x1b\\")
-    return "".join(parts)
+            out.append(f"\x1b_G{','.join(params)},m={1 if len(chunks) > 1 else 0};{chunk}\x1b\\")
+        else:
+            out.append(f"\x1b_Gm={1 if i < len(chunks) - 1 else 0};{chunk}\x1b\\")
+    return "".join(out)
 
 
-def display(path: Path, out=None) -> None:
-    """Display an image at the cursor via Kitty protocol."""
+def fallback_text(path: Path, width_px: int = 0, height_px: int = 0) -> str:
+    """pi: imageFallback — shown when the terminal can't render images."""
+    display_path = str(path).replace(str(Path.home()), "~")
+    dims = f" {width_px}x{height_px}" if width_px else ""
+    return f"[Image: {display_path} [{path.suffix.lstrip('.')}] {dims}]"
+
+
+def display(path: Path, out=None) -> str:
+    """Emit the Kitty sequence at cursor; returns the fallback text if unsupported."""
+    png = _to_png(path)
+    w, h = _last_dims.get(path, (800, 600))
+    if not supports_kitty():
+        return fallback_text(path, w, h)
+    cols, rows = calculate_cell_size(w, h)
     out = out or sys.stdout
-    out.write(kitty_sequence(_to_png(path)))
-    out.write("\n")
+    out.write(encode_kitty(png, columns=cols, rows=rows) + "\n" * rows)
     out.flush()
+    return ""
 
 
-def as_data_url(path: Path) -> str:
-    """base64 data URL for OpenAI-compatible vision APIs."""
-    ext = path.suffix.lower()
-    mime = "image/jpeg" if ext in (".jpg", ".jpeg") else "image/png"
-    data = base64.standard_b64encode(path.read_bytes()).decode()
-    return f"data:{mime};base64,{data}"
+# --- vault image references (lets the agent find images itself) ---------------
+
+_IMG_REF = re.compile(r"!\[[^\]]*\]\(([^)]+)\)|([^\s!()\[\]]+\.(?:png|jpe?g|gif|webp|bmp))", re.IGNORECASE)
 
 
-def supports_kitty() -> bool:
-    term = os.environ.get("TERM_PROGRAM", "") + os.environ.get("TERM", "")
-    return any(k in term.lower() for k in ("ghostty", "kitty", "wezterm"))
+def find_image_references(vault: Path) -> list[dict]:
+    """Scan vault notes for image references (markdown embeds or bare paths)."""
+    found: list[dict] = []
+    for md in sorted(vault.rglob("*.md")):
+        for m in _IMG_REF.finditer(md.read_text(encoding="utf-8")):
+            ref = m.group(1) or m.group(2)
+            p = Path(ref).expanduser()
+            if not p.is_absolute():
+                p = vault / ref
+            found.append({
+                "note": str(md.relative_to(vault)),
+                "ref": ref,
+                "resolved": str(p),
+                "exists": p.exists(),
+            })
+    return found
