@@ -17,6 +17,7 @@ from rich.markdown import Markdown
 from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
+from textual.containers import Horizontal
 from textual.screen import ModalScreen
 from textual.widgets import Footer, Header, Input, Label, OptionList, RichLog
 from textual.widgets.option_list import Option
@@ -68,10 +69,11 @@ class ConfirmScreen(ModalScreen[bool]):
 
 
 class CommandInput(Input):
-    """Editor keybindings aligned with pi (tui.editor.*):
-    ctrl+b/f cursor, alt+←/→ word jump, ctrl+u/k/w deletion (Input defaults),
-    ctrl+d delete-forward / double-press on empty input = quit,
-    ctrl+c clears the input (user preference over pi's copy).
+    """Modal editor (pi-vimmode style, single-line subset).
+
+    INSERT: normal typing + completion + readline ctrl keys (default).
+    NORMAL: vim motions/edits; Enter submits; j/k scroll the transcript.
+    Esc in INSERT closes the completion menu first, then enters NORMAL.
     """
 
     BINDINGS = [
@@ -79,7 +81,6 @@ class CommandInput(Input):
         Binding("up", "comp_up", show=False),
         Binding("down", "comp_down", show=False),
         Binding("enter", "submit_or_complete", show=False),
-        Binding("escape", "comp_dismiss", show=False),
         Binding("ctrl+b", "cursor_left", show=False),
         Binding("ctrl+f", "cursor_right", show=False),
         Binding("alt+left", "cursor_left_word", show=False),
@@ -87,6 +88,87 @@ class CommandInput(Input):
         Binding("ctrl+d", "ctrl_d", show=False),
         Binding("ctrl+c", "clear_input", show=False),
     ]
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.vim_enabled = True
+        self.vim_mode = "insert"
+        self._pending: tuple[str, float] | None = None  # multi-key (dd/cc)
+
+    # --- mode plumbing ----------------------------------------------------
+
+    def set_vim_mode(self, mode: str) -> None:
+        self.vim_mode = mode
+        self._pending = None
+        app: OneAIApp = self.app  # type: ignore[assignment]
+        app.update_mode_indicator()
+
+    def _on_key(self, event) -> None:
+        """Subclass handler runs before Input's (MRO order); prevent_default
+        stops further dispatch, so Input never sees normal-mode keys."""
+        if not self.vim_enabled:
+            if event.key == "escape":
+                app: OneAIApp = self.app  # type: ignore[assignment]
+                app.hide_completion()
+                event.prevent_default()
+                event.stop()
+            return
+        if self.vim_mode == "insert":
+            if event.key == "escape":
+                app: OneAIApp = self.app  # type: ignore[assignment]
+                if app.completion_active():
+                    app.hide_completion()  # pi-vimmode: Esc closes autocomplete first
+                else:
+                    self.set_vim_mode("normal")
+                event.prevent_default()
+                event.stop()
+            return
+        # normal mode
+        if event.key in ("up", "down", "tab", "enter"):
+            return  # let BINDINGS handle (scroll/nav/submit)
+        if self._handle_normal_key(event.key):
+            event.prevent_default()
+            event.stop()
+
+    def _handle_normal_key(self, key: str) -> bool:
+        import time
+
+        app: OneAIApp = self.app  # type: ignore[assignment]
+        now = time.monotonic()
+        pending = self._pending if self._pending and now - self._pending[1] < 1.0 else None
+        self._pending = None
+
+        if pending and pending[0] == "d" and key == "d":
+            self.value = ""
+            return True
+        if pending and pending[0] == "c" and key == "c":
+            self.value = ""
+            self.set_vim_mode("insert")
+            return True
+        if key in ("d", "c"):
+            self._pending = (key, now)
+            return True
+
+        match key:
+            case "h": self.action_cursor_left()
+            case "l": self.action_cursor_right()
+            case "w" | "e": self.action_cursor_right_word()
+            case "b": self.action_cursor_left_word()
+            case "0": self.action_home()
+            case "$" | "dollar_sign": self.action_end()
+            case "i": self.set_vim_mode("insert")
+            case "a": self.action_cursor_right(); self.set_vim_mode("insert")
+            case "I": self.action_home(); self.set_vim_mode("insert")
+            case "A": self.action_end(); self.set_vim_mode("insert")
+            case "x": self.action_delete_right()
+            case "X": self.action_delete_left()
+            case "D": self.action_delete_right_all()
+            case "C": self.action_delete_right_all(); self.set_vim_mode("insert")
+            case "j": app.chat().scroll_relative(y=2, animate=False)
+            case "k": app.chat().scroll_relative(y=-2, animate=False)
+            case _:
+                return True  # swallow all other keys in normal mode
+        return True
 
     def action_ctrl_d(self) -> None:
         if self.value:
@@ -97,6 +179,10 @@ class CommandInput(Input):
 
     def action_clear_input(self) -> None:
         self.value = ""
+
+    def action_comp_dismiss(self) -> None:
+        app: OneAIApp = self.app  # type: ignore[assignment]
+        app.hide_completion()
 
     def action_complete(self) -> None:
         app: OneAIApp = self.app  # type: ignore[assignment]
@@ -136,7 +222,10 @@ class OneAIApp(App):
     #chat { height: 1fr; padding: 0 1; }
     #completion { height: auto; max-height: 9; display: none; }
     #completion.visible { display: block; }
-    #input { height: auto; background: $boost; padding: 0 1; }
+    #input-bar { height: auto; }
+    #mode { width: 12; padding: 0 1; color: black; background: $success; text-style: bold; }
+    #mode.normal { background: $primary; }
+    #input { width: 1fr; height: auto; background: $boost; padding: 0 1; }
     ConfirmScreen { align: center middle; }
     ConfirmScreen Label { width: 60; padding: 1 2; background: $surface; }
     """
@@ -174,6 +263,7 @@ class OneAIApp(App):
         Command("reload", "重新加载扩展（~/.oneai/extensions/）"),
         Command("copy", "复制最近一条回答到剪贴板"),
         Command("new", "开启新会话（清空对话上下文）"),
+        Command("vim", "开关 vim 编辑模式（默认开）", argument_hint="on|off"),
         Command("image", "在终端中预览图片（Kitty 协议，Ghostty 可用）", argument_hint="<路径>"),
         Command("vision", "带图提问（图片随问题发给模型）", argument_hint="<路径> <问题>"),
         Command("clear", "清空屏幕"),
@@ -190,7 +280,9 @@ class OneAIApp(App):
         yield Header()
         yield ChatLog(id="chat", markup=True, wrap=True)
         yield OptionList(id="completion")
-        yield CommandInput(placeholder="直接输入提问；/ 开头为命令（↑↓ 选择，Tab 补全）", id="input")
+        with Horizontal(id="input-bar"):
+            yield Label("INSERT", id="mode")
+            yield CommandInput(placeholder="直接输入提问；/ 开头为命令；Esc 进入 NORMAL", id="input")
 
     def on_mount(self) -> None:
         self.title = "oneAI"
@@ -203,6 +295,30 @@ class OneAIApp(App):
 
     def chat(self) -> RichLog:
         return self.query_one("#chat", RichLog)
+
+    def update_mode_indicator(self) -> None:
+        box = self.query_one("#input", CommandInput)
+        label = self.query_one("#mode", Label)
+        if not box.vim_enabled:
+            label.update("PLAIN")
+            label.set_class(False, "normal")
+            return
+        normal = box.vim_mode == "normal"
+        label.update("NORMAL" if normal else "INSERT")
+        label.set_class(normal, "normal")
+
+    def _ui_vim(self, arg: str = "") -> None:
+        box = self.query_one("#input", CommandInput)
+        if arg == "on":
+            box.vim_enabled = True
+        elif arg == "off":
+            box.vim_enabled = False
+            box.set_vim_mode("insert")
+        else:
+            box.vim_enabled = not box.vim_enabled
+        self.update_mode_indicator()
+        state = "开启" if box.vim_enabled else "关闭"
+        self.chat().write(f"[dim]vim 模式已{state}（Esc 切 NORMAL，i 回 INSERT）[/dim]")
 
     # --- command registry & vertical completion menu ----------------------
 
@@ -421,6 +537,7 @@ def run() -> None:
         "help": app._ui_help, "copy": app._ui_copy, "inbox": app._ui_inbox,
         "reindex": app._ui_reindex, "reload": app._ui_reload,
         "new": app._ui_new,
+        "vim": app._ui_vim,
         "image": app._ui_image,
         "vision": app._ui_vision,
         "clear": lambda a="": app.chat().clear(),
