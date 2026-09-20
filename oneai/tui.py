@@ -18,7 +18,6 @@ from rich.markdown import Markdown
 from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal
 from textual.screen import ModalScreen
 from textual.widgets import Footer, Header, Input, Label, OptionList, RichLog
 from textual.widgets.option_list import Option
@@ -252,17 +251,18 @@ class CommandInput(Input):
             case "X": self.action_delete_left()
             case "D": self.action_delete_right_all()
             case "C": self.action_delete_right_all(); self.set_vim_mode("insert")
-            case "j": app.chat().scroll_relative(y=2, animate=False)
-            case "k": app.chat().scroll_relative(y=-2, animate=False)
+            case "j": app.history_move(-1)   # newer
+            case "k": app.history_move(1)    # older
             case _:
                 return True  # swallow all other keys in normal mode
         return True
 
     def action_ctrl_d(self) -> None:
-        # Ctrl+D = quit gesture in BOTH modes, always double-press with the
-        # same hint (consistent whether the input is empty or not).
-        app: OneAIApp = self.app  # type: ignore[assignment]
-        app.handle_ctrl_d()
+        if self.vim_enabled and self.vim_mode == "normal":
+            app: OneAIApp = self.app  # type: ignore[assignment]
+            app.handle_ctrl_d()  # double-press quit
+        else:
+            self.value = ""  # INSERT: clear all text
 
     def action_clear_input(self) -> None:
         # Ctrl+C: with vim on, enter NORMAL (user preference); off -> clear line
@@ -284,14 +284,14 @@ class CommandInput(Input):
         if app.completion_active():
             app.move_completion(-1)
         else:
-            app.chat().scroll_relative(y=-LINE_SCROLL_LINES, animate=False)
+            app.history_move(1)  # older input (pi: cursorUp browses history)
 
     def action_comp_down(self) -> None:
         app: OneAIApp = self.app  # type: ignore[assignment]
         if app.completion_active():
             app.move_completion(1)
         else:
-            app.chat().scroll_relative(y=LINE_SCROLL_LINES, animate=False)
+            app.history_move(-1)  # newer input / back to draft
 
     def action_submit_or_complete(self) -> None:
         app: OneAIApp = self.app  # type: ignore[assignment]
@@ -315,12 +315,12 @@ class OneAIApp(App):
     #completion.visible { display: block; }
     #status { height: auto; padding: 0 1; color: $warning; display: none; }
     #status.visible { display: block; }
-    #input-bar { height: 1; }
-    #mode { width: auto; min-width: 7; height: 1; padding: 0 1; color: black; background: $success; text-style: bold; content-align: center middle; }
-    #mode.normal { background: $primary; }
-    /* pi-style prompt: no border (cleaner + nothing boxy leaks into copies) */
-    #input { width: 1fr; height: 1; border: none; background: $boost; padding: 0 1; }
-    #input:focus { border: none; background: $surface-lighten-1; }
+    /* mode badge: own row, centered, breathing room */
+    #mode { width: 1fr; height: 1; text-align: center; color: $success; text-style: bold; margin-top: 1; }
+    #mode.normal { color: $primary; }
+    /* rounded prompt box (pi-style) */
+    #input { width: 1fr; height: 3; border: round $secondary; background: $boost; padding: 0 1; margin-bottom: 1; }
+    #input:focus { border: round $primary; }
     ConfirmScreen { align: center middle; }
     ConfirmScreen Label { width: 60; padding: 1 2; background: $surface; }
     """
@@ -349,7 +349,7 @@ class OneAIApp(App):
             self.exit()
         else:
             self._last_ctrl_d = now
-            self.show_status("再按一次 Ctrl+D 退出")
+            self.show_status("再按一次 Ctrl+D 退出", fade_after=1.6)
 
     UI_COMMANDS = [
         Command("help", "显示帮助"),
@@ -371,15 +371,21 @@ class OneAIApp(App):
         self.cfg = Config.load()
         self.runtime = Runtime(self.cfg, confirm=self._confirm_gate)
         self._last_answer = ""
+        # input history, pi editor semantics: newest-first, no consecutive
+        # duplicates, capped at 100; persisted to state dir
+        self.input_history: list[str] = []
+        self._hist_idx = -1
+        self._hist_draft = ""
+        self._history_file = self.cfg.state_path / "input_history.txt"
+        self._load_history()
 
     def compose(self) -> ComposeResult:
         yield Header()
         yield ChatLog(id="chat", markup=True, wrap=True)
         yield OptionList(id="completion")
         yield Label("", id="status")
-        with Horizontal(id="input-bar"):
-            yield Label("INSERT", id="mode")
-            yield CommandInput(placeholder="直接输入提问；/ 开头为命令；Esc 进入 NORMAL", id="input")
+        yield Label("-- INSERT --", id="mode")
+        yield CommandInput(placeholder="直接输入提问；/ 开头为命令；Esc 进入 NORMAL", id="input")
 
     def on_mount(self) -> None:
         self.title = "oneAI"
@@ -390,6 +396,42 @@ class OneAIApp(App):
         self.runtime.image_display_cb = self._display_image_agent
         self.query_one("#input", Input).focus()
 
+    # --- input history (pi editor: addToHistory / navigateHistory) ----------
+
+    def _load_history(self) -> None:
+        if self._history_file.exists():
+            lines = [l.strip() for l in self._history_file.read_text(encoding="utf-8").splitlines()]
+            self.input_history = [l for l in reversed(lines) if l][-100:]
+
+    def add_history(self, text: str) -> None:
+        text = text.strip()
+        if not text or (self.input_history and self.input_history[0] == text):
+            return
+        self.input_history.insert(0, text)
+        if len(self.input_history) > 100:
+            self.input_history.pop()
+        try:
+            self._history_file.parent.mkdir(parents=True, exist_ok=True)
+            with self._history_file.open("a", encoding="utf-8") as f:
+                f.write(text + "\n")
+        except OSError:
+            pass
+        self._hist_idx = -1
+
+    def history_move(self, direction: int) -> None:
+        """direction=+1 older (up/k), -1 newer (down/j); index -1 = live draft."""
+        box = self.query_one("#input", CommandInput)
+        if not self.input_history:
+            return
+        new_idx = self._hist_idx + direction
+        if new_idx < -1 or new_idx >= len(self.input_history):
+            return
+        if self._hist_idx == -1 and new_idx >= 0:
+            self._hist_draft = box.value  # save live draft when entering history
+        self._hist_idx = new_idx
+        box.value = self._hist_draft if new_idx == -1 else self.input_history[new_idx]
+        box.cursor_position = len(box.value)
+
     def chat(self) -> RichLog:
         return self.query_one("#chat", RichLog)
 
@@ -397,11 +439,11 @@ class OneAIApp(App):
         box = self.query_one("#input", CommandInput)
         label = self.query_one("#mode", Label)
         if not box.vim_enabled:
-            label.update("PLAIN")
+            label.update("-- PLAIN --")
             label.set_class(False, "normal")
             return
         normal = box.vim_mode == "normal"
-        label.update("NORMAL" if normal else "INSERT")
+        label.update("-- NORMAL --" if normal else "-- INSERT --")
         label.set_class(normal, "normal")
 
     def _ui_vim(self, arg: str = "") -> None:
@@ -464,11 +506,13 @@ class OneAIApp(App):
         box.cursor_position = len(box.value)
         self._refresh_completion(box.value)
 
-    def show_status(self, text: str) -> None:
+    def show_status(self, text: str, fade_after: float | None = None) -> None:
         """Transient hint line above the input (not written into the chat)."""
         label = self.query_one("#status", Label)
         label.update(text)
         label.set_class(bool(text), "visible")
+        if fade_after:
+            self.set_timer(fade_after, lambda: self.show_status(""))
 
     def hide_completion(self) -> None:
         self.query_one("#completion", OptionList).remove_class("visible")
@@ -504,6 +548,7 @@ class OneAIApp(App):
         self.show_status("")
         if not text:
             return
+        self.add_history(text)
         if not text.startswith("/"):
             self._start_chat(text)
             return

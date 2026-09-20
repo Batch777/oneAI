@@ -98,13 +98,19 @@ class TestScrolling:
             await pilot.pause(0.3)
             assert bottom - chat.scroll_offset.y == WHEEL_SCROLL_LINES
 
-            # arrows scroll chat when completion hidden, navigate when visible
-            chat.scroll_end(animate=False)
-            await pilot.pause(0.2)
-            b2 = chat.scroll_offset.y
+            # arrows navigate input history when completion hidden
+            app.input_history = ["newer-cmd", "older-cmd"]  # newest first
+            box = app.query_one("#input", Input)
+            box.value = "live draft"
             await pilot.press("up")
             await pilot.pause(0.2)
-            assert chat.scroll_offset.y < b2
+            assert box.value == "newer-cmd"
+            await pilot.press("up")
+            assert box.value == "older-cmd"
+            await pilot.press("down")
+            assert box.value == "newer-cmd"
+            await pilot.press("down")         # past newest -> restore draft
+            assert box.value == "live draft"
             box = app.query_one("#input", Input)
             box.value = "/re"
             app._refresh_completion("/re")
@@ -137,42 +143,34 @@ class TestEditorKeys:
             await pilot.press("ctrl+u")
             assert box.value == "def"
 
-            # ctrl+d = quit gesture in both modes, double-press, same hint
+            # ctrl+d in INSERT clears all text (never quits)
             box.value = "abc"
             exited = []
-            app.exit = lambda: exited.append(1)
-            await pilot.press("ctrl+d")        # first press: hint only
-            await pilot.pause(0.2)
-            assert not exited and box.value == "abc"  # text untouched
-            await pilot.press("ctrl+d")        # second press: quit
-            assert exited
+            app.exit = lambda: exited.append(1)  # spy instead of quitting
+            await pilot.press("ctrl+d")
+            assert box.value == ""
+            assert not exited
 
-            # NORMAL mode: identical behavior
+            # NORMAL mode: double ctrl+d quits (with status hint)
             box.value = "abc"
-            exited.clear()
             app._last_ctrl_d = 0.0
             await pilot.press("escape")
             await pilot.press("ctrl+d")
             await pilot.pause(0.2)
             assert not exited and box.value == "abc"
+            status = str(app.query_one("#status", Label).render())
+            assert "再按一次" in status
             await pilot.press("ctrl+d")
             assert exited
 
-            # empty input: same double-press rule
+            # empty input INSERT: ctrl+d clears (no-op), does NOT quit
             await pilot.press("i")
             box.value = ""
             exited.clear()
             app._last_ctrl_d = 0.0
             await pilot.press("ctrl+d")
             await pilot.pause(0.2)
-            assert not exited
-            # hint shows in the bottom status line, not the chat history
-            status = str(app.query_one("#status", Label).render())
-            assert "再按一次" in status
-            chat = "\n".join(str(l.text) for l in app.query_one("#chat").lines)
-            assert "再按一次" not in chat
-            await pilot.press("ctrl+d")
-            assert exited  # second press quits
+            assert not exited  # second press quits
 
     def test_cursor_movement_keys(self):
         run(self._cursor())
@@ -193,6 +191,61 @@ class TestEditorKeys:
             assert box.cursor_position == 1
             await pilot.press("alt+right")        # word right
             assert box.cursor_position == 6  # past "hello "
+
+
+class TestHistory:
+    def test_history_record_and_navigate(self, tmp_path):
+        run(self._hist(tmp_path))
+
+    async def _hist(self, tmp_path):
+        app = await make_app()
+        async with app.run_test() as pilot:
+            await pilot.pause(0.5)
+            app._history_file = tmp_path / "input_history.txt"  # isolate state
+            app.input_history = []
+            box = app.query_one("#input", Input)
+
+            await submit(pilot, app, "/help")
+            await submit(pilot, app, "/inbox")
+            assert app.input_history == ["/inbox", "/help"]  # newest first
+
+            box.value = "draft"
+            await pilot.press("up")
+            assert box.value == "/inbox"
+            await pilot.press("up")
+            assert box.value == "/help"
+            await pilot.press("down")
+            assert box.value == "/inbox"
+            await pilot.press("down")
+            assert box.value == "draft"  # draft restored
+
+            # consecutive duplicates skipped (pi semantics)
+            await submit(pilot, app, "/help")
+            await submit(pilot, app, "/help")
+            assert app.input_history.count("/help") == 1
+
+            # persisted to file
+            content = (tmp_path / "input_history.txt").read_text()
+            assert "/help" in content and "/inbox" in content
+
+    def test_normal_jk_navigates_history(self):
+        run(self._jk())
+
+    async def _jk(self):
+        app = await make_app()
+        async with app.run_test() as pilot:
+            await pilot.pause(0.5)
+            app.input_history = ["newer", "older"]
+            box = app.query_one("#input", Input)
+            box.focus()
+            await pilot.press("escape")  # NORMAL
+            await pilot.press("k")
+            await pilot.pause(0.1)
+            assert box.value == "newer"
+            await pilot.press("k")
+            assert box.value == "older"
+            await pilot.press("j")
+            assert box.value == "newer"
 
 
 class TestDispatch:
