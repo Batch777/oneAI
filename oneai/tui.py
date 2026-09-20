@@ -10,6 +10,7 @@ pi-inspired:
 from __future__ import annotations
 
 import concurrent.futures
+import re
 import subprocess
 from pathlib import Path
 
@@ -27,6 +28,62 @@ from .runtime import Command, Runtime
 
 WHEEL_SCROLL_LINES = 6   # pi: 5 for trackpad; slightly faster per request
 LINE_SCROLL_LINES = 2    # ↑/↓ step when the completion menu is hidden
+JK_TIMEOUT = 0.5         # insert-mode jk chord window (seconds)
+PENDING_TIMEOUT = 1.0    # multi-key normal-mode sequences (dd/diw/...)
+WORD_RE = re.compile(r"[\w\u4e00-\u9fff]+")
+PAIRS = {'"': ('"', '"'), "'": ("'", "'"), "`": ("`", "`"),
+         "(": ("(", ")"), ")": ("(", ")"), "b": ("(", ")"),
+         "[": ("[", "]"), "]": ("[", "]"),
+         "{": ("{", "}"), "}": ("{", "}"), "B": ("{", "}"),
+         "<": ("<", ">"), ">": ("<", ">")}
+# Textual reports punctuation as key names; map them back to literal chars.
+PUNCT_KEYS = {"quotedbl": '"', "apostrophe": "'", "grave_accent": "`",
+              "left_parenthesis": "(", "right_parenthesis": ")",
+              "left_square_bracket": "[", "right_square_bracket": "]",
+              "left_curly_bracket": "{", "right_curly_bracket": "}",
+              "less_than_sign": "<", "greater_than_sign": ">",
+              "dollar_sign": "$"}
+
+
+def text_object_span(text: str, pos: int, scope: str, obj: str) -> tuple[int, int] | None:
+    """Vim text objects: iw/aw (word) and i/obj a/obj for quotes & brackets."""
+    pos = min(pos, len(text))
+    if obj == "w":
+        for m in WORD_RE.finditer(text):
+            if m.start() <= pos <= m.end() and m.start() < m.end():
+                if scope == "i":
+                    return m.start(), m.end()
+                # around: include trailing whitespace, else leading
+                end = m.end()
+                while end < len(text) and text[end] == " ":
+                    end += 1
+                if end > m.end():
+                    return m.start(), end
+                start = m.start()
+                while start > 0 and text[start - 1] == " ":
+                    start -= 1
+                return start, m.end()
+        return None
+    if obj in PAIRS:
+        o, c = PAIRS[obj]
+        left = text.rfind(o, 0, pos + 1) if pos < len(text) else text.rfind(o)
+        # for symmetric quotes, opening = the quote before the cursor
+        if o == c:
+            left = text.rfind(o, 0, pos)
+            if left < 0:
+                return None
+            right = text.find(c, left + 1)
+        else:
+            left = text.rfind(o, 0, pos + 1)
+            if left < 0:
+                return None
+            right = text.find(c, left + 1)
+            if right < pos and pos < len(text):
+                right = text.find(c, pos)
+        if left < 0 or right < 0 or right <= left:
+            return None
+        return (left + 1, right) if scope == "i" else (left, right + 1)
+    return None
 
 
 class ChatLog(RichLog):
@@ -93,7 +150,8 @@ class CommandInput(Input):
         super().__init__(*args, **kwargs)
         self.vim_enabled = True
         self.vim_mode = "insert"
-        self._pending: tuple[str, float] | None = None  # multi-key (dd/cc)
+        self._pending: tuple[str, float] | None = None  # multi-key (dd/diw/cip...)
+        self._jk_time: float | None = None              # insert-mode jk chord
 
     # --- mode plumbing ----------------------------------------------------
 
@@ -122,11 +180,30 @@ class CommandInput(Input):
                     self.set_vim_mode("normal")
                 event.prevent_default()
                 event.stop()
+                return
+            # jk chord -> NORMAL (user preference; pi-vimmode rejects chords)
+            import time
+
+            if event.key == "j":
+                self._jk_time = time.monotonic()
+            elif event.key == "k" and self._jk_time is not None:
+                fresh = time.monotonic() - self._jk_time < JK_TIMEOUT
+                pos = self.cursor_position
+                if fresh and pos > 0 and self.value[pos - 1] == "j":
+                    self.value = self.value[: pos - 1] + self.value[pos:]
+                    self.cursor_position = pos - 1
+                    self.set_vim_mode("normal")
+                    event.prevent_default()
+                    event.stop()
+                self._jk_time = None
+            elif event.is_printable:
+                self._jk_time = None
             return
         # normal mode
-        if event.key in ("up", "down", "tab", "enter"):
-            return  # let BINDINGS handle (scroll/nav/submit)
-        if self._handle_normal_key(event.key):
+        key = event.character or PUNCT_KEYS.get(event.key, event.key)
+        if not event.is_printable and key == event.key:
+            return  # ctrl/alt/enter/tab/... go to BINDINGS (quit, scroll, submit)
+        if self._handle_normal_key(key):
             event.prevent_default()
             event.stop()
 
@@ -135,15 +212,26 @@ class CommandInput(Input):
 
         app: OneAIApp = self.app  # type: ignore[assignment]
         now = time.monotonic()
-        pending = self._pending if self._pending and now - self._pending[1] < 1.0 else None
+        pending = self._pending if self._pending and now - self._pending[1] < PENDING_TIMEOUT else None
         self._pending = None
 
-        if pending and pending[0] == "d" and key == "d":
+        if pending and pending[0] in ("d", "c") and key == pending[0]:  # dd / cc
             self.value = ""
+            if pending[0] == "c":
+                self.set_vim_mode("insert")
             return True
-        if pending and pending[0] == "c" and key == "c":
-            self.value = ""
-            self.set_vim_mode("insert")
+        if pending and len(pending[0]) == 1 and pending[0] in ("d", "c") and key in ("i", "a"):
+            self._pending = (pending[0] + key, now)  # di/ci/da/ca, waiting for object
+            return True
+        if pending and len(pending[0]) == 2:  # text object: diw/daw/ciw/di"/ca( ...
+            op, scope = pending[0]
+            span = text_object_span(self.value, self.cursor_position, scope, key)
+            if span:
+                s, e = span
+                self.value = self.value[:s] + self.value[e:]
+                self.cursor_position = s
+                if op == "c":
+                    self.set_vim_mode("insert")
             return True
         if key in ("d", "c"):
             self._pending = (key, now)
@@ -171,14 +259,20 @@ class CommandInput(Input):
         return True
 
     def action_ctrl_d(self) -> None:
-        if self.value:
+        if self.vim_enabled and self.vim_mode == "normal":
+            self.app.exit()  # Ctrl+D in NORMAL quits (shell-EOF style)
+        elif self.value:
             self.action_delete_right()  # pi: deleteCharForward
         else:
             app: OneAIApp = self.app  # type: ignore[assignment]
             app.handle_empty_ctrl_d()
 
     def action_clear_input(self) -> None:
-        self.value = ""
+        # Ctrl+C: with vim on, enter NORMAL (user preference); off -> clear line
+        if self.vim_enabled:
+            self.set_vim_mode("normal")
+        else:
+            self.value = ""
 
     def action_comp_dismiss(self) -> None:
         app: OneAIApp = self.app  # type: ignore[assignment]

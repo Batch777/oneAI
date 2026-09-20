@@ -118,3 +118,75 @@ class TestVimMode:
             await press(pilot, "escape")
             assert box.vim_mode == "insert"  # no modal switch when disabled
             assert "PLAIN" in str(app.query_one("#mode", Label).render())
+
+    def test_text_objects(self):
+        run(self._objects())
+
+    async def _objects(self):
+        app = OneAIApp()
+        async with app.run_test() as pilot:
+            await pilot.pause(0.5)
+            box = app.query_one("#input", CommandInput)
+            box.focus()
+
+            def set_normal(text, pos):
+                box.value = text
+                box.cursor_position = pos
+                box.set_vim_mode("normal")
+
+            # diw: delete inner word
+            set_normal("hello world foo", 7)
+            await press(pilot, "d", "i", "w")
+            assert box.value == "hello  foo", box.value
+
+            # daw: delete around word (incl. trailing space)
+            set_normal("hello world foo", 7)
+            await press(pilot, "d", "a", "w")
+            assert box.value == "hello foo", box.value
+
+            # ciw: change inner word -> insert mode
+            set_normal("hello world", 2)
+            await press(pilot, "c", "i", "w")
+            assert box.value == " world"
+            assert box.vim_mode == "insert"
+
+            # di" : inner quoted
+            set_normal('say "hello world" ok', 9)
+            await press(pilot, "d", "i", '"')
+            assert box.value == 'say "" ok', box.value
+
+            # da( : around parens
+            set_normal("f(x + 1) end", 4)
+            await press(pilot, "d", "a", "(")
+            assert box.value == "f end", box.value
+
+            # ci{ : change inside braces
+            set_normal("{a, b}", 2)
+            await press(pilot, "c", "i", "{")
+            assert box.value == "{}"
+            assert box.vim_mode == "insert"
+
+    def test_jk_chord(self):
+        run(self._jk())
+
+    async def _jk(self):
+        app = OneAIApp()
+        async with app.run_test() as pilot:
+            await pilot.pause(0.5)
+            box = app.query_one("#input", CommandInput)
+            box.focus()
+            assert box.vim_mode == "insert"
+            # fast jk -> normal mode, 'j' removed
+            await pilot.press("j")
+            await pilot.press("k")
+            await pilot.pause(0.2)
+            assert box.vim_mode == "normal"
+            assert box.value == ""
+            # slow j,k -> both inserted
+            box.set_vim_mode("insert")
+            await pilot.press("j")
+            await pilot.pause(0.7)
+            await pilot.press("k")
+            await pilot.pause(0.2)
+            assert box.vim_mode == "insert"
+            assert box.value == "jk"

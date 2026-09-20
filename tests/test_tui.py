@@ -124,10 +124,12 @@ class TestEditorKeys:
             box = app.query_one("#input", Input)
             box.focus()
 
-            # ctrl+c clears the input
+            # ctrl+c enters NORMAL mode (vim on)
             box.value = "draft text"
             await pilot.press("ctrl+c")
-            assert box.value == ""
+            assert box.vim_mode == "normal"
+            assert box.value == "draft text"  # text kept
+            await pilot.press("i")            # back to insert
 
             # ctrl+u deletes to line start (pi default, restored)
             box.value = "abcdef"
@@ -141,7 +143,15 @@ class TestEditorKeys:
             await pilot.press("ctrl+d")
             assert box.value == "bc"
 
-            # double ctrl+d on empty input quits
+            # ctrl+d in NORMAL mode quits directly
+            exited = []
+            app.exit = lambda: exited.append(1)
+            await pilot.press("escape")       # normal mode
+            await pilot.press("ctrl+d")
+            assert exited
+
+            # double ctrl+d on empty input quits (INSERT mode)
+            await pilot.press("i")            # back to insert
             box.value = ""
             exited = []
             app.exit = lambda: exited.append(1)  # spy instead of quitting
