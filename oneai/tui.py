@@ -257,6 +257,7 @@ class OneAIApp(App):
             hint = f" [dim]{c.argument_hint}[/dim]" if c.argument_hint else ""
             self.chat().write(f"  [bold cyan]/{c.name}[/bold cyan]{hint}  {c.description}")
         self.chat().write("[dim]不带 / 的输入直接进入对话（回答附 [[path#Lx-Ly]] 引用）[/dim]")
+        self.chat().write("[dim]复制：Shift+拖拽框选，或 /copy 复制最近回答[/dim]")
 
     def _ui_copy(self, _arg: str = "") -> None:
         if not self._last_answer:
@@ -385,7 +386,8 @@ def run() -> None:
     for c in app.UI_COMMANDS:
         if c.name in handlers:
             c.handler = handlers[c.name]
-    app.run(mouse=False)  # mouse off → Ghostty native drag-select & copy works
+    app.run()  # mouse on: wheel/trackpad scrolls the transcript;
+    # copy via Shift+drag (bypasses mouse capture) or /copy
 
 
 if __name__ == "__main__":
