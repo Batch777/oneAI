@@ -1,4 +1,4 @@
-"""Agent: answer questions from the vault, always with provenance citations."""
+"""Agent helpers: draft pipeline, identity context. (Q&A lives in runtime.py.)"""
 from __future__ import annotations
 
 from datetime import datetime
@@ -10,12 +10,13 @@ from .indexer import Index, SearchResult
 from .llm import LLM
 from .vault import new_id, now_iso, write_note
 
-SYSTEM = """You are a personal assistant answering questions about the user's life.
-Use ONLY the context notes below. Rules:
-- Cite every claim with its source in the form [[path#Lstart-Lend]].
-- If the context is insufficient, say what is missing instead of guessing.
-- Reply in the user's preferred language (see identity note if present).
-- Be concise."""
+
+def build_context(results: list[SearchResult]) -> str:
+    blocks = []
+    for r in results:
+        body = r.text or r.snippet
+        blocks.append(f"--- {r.citation} ({r.heading or 'no heading'}) ---\n{body[:1500]}")
+    return "\n\n".join(blocks)
 
 
 def _identity_context(cfg: Config) -> str:
@@ -26,45 +27,6 @@ def _identity_context(cfg: Config) -> str:
         return ""
     body = path.read_text(encoding="utf-8")
     return f"\n\nIdentity of the user you serve:\n{body}"
-
-
-def build_context(results: list[SearchResult]) -> str:
-    blocks = []
-    for r in results:
-        body = r.text or r.snippet
-        blocks.append(f"--- {r.citation} ({r.heading or 'no heading'}) ---\n{body[:1500]}")
-    return "\n\n".join(blocks)
-
-
-EXPAND_SYSTEM = """把用户的问题改写为一组用于全文检索的关键词。
-包含同义词和相关实体（例如「学历」应展开为 学历 教育 本科 硕士 学校 GPA）。
-用空格分隔，不超过 12 个词，只输出关键词，不要解释。"""
-
-
-def ask(cfg: Config, question: str, k: int = 8) -> str:
-    llm = LLM(cfg)
-    # Query expansion: bridge the vocabulary gap between question and notes
-    # (lexical search can't match 学历 -> 教育/本科/硕士 on its own).
-    try:
-        expansion = llm.chat(EXPAND_SYSTEM, question)
-    except Exception:
-        expansion = ""
-    index = Index(cfg.index_db)
-    results = index.search(f"{question} {expansion}", k=k)
-    index.close()
-    log = EventLog(cfg.events_log)
-
-    if not results:
-        log.emit("ask", question=question, hits=0)
-        return "No relevant notes found in the vault. Try `oneai index` first, or add notes."
-
-    answer = llm.chat(SYSTEM + _identity_context(cfg),
-                      f"Context:\n{build_context(results)}\n\nQuestion: {question}")
-    log.emit("ask", question=question, hits=len(results),
-             sources=[r.citation for r in results])
-
-    sources = "\n".join(f"- {r.citation}" for r in results)
-    return f"{answer}\n\nSources:\n{sources}"
 
 
 DRAFT_SYSTEM = """You are a writing assistant for the user.

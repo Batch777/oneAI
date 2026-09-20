@@ -4,7 +4,6 @@ from __future__ import annotations
 import argparse
 import sys
 
-from .agent import ask
 from .config import Config
 from .events import EventLog
 from .indexer import Index
@@ -105,8 +104,18 @@ def main() -> None:
         print(json.dumps(files, ensure_ascii=False))
 
     elif args.cmd == "ask":
+        from .runtime import Runtime
+
+        rt = Runtime(cfg)
+        rt.load_extensions()
+
+        def ev(kind: str, data: dict) -> None:
+            if kind == "tool_start":
+                print(f"  [tool] {data['name']}({list(data['args'].values())[:1]})",
+                      file=sys.stderr)
+
         try:
-            print(ask(cfg, args.question))
+            print(rt.run_agent(args.question, on_event=ev))
         except RuntimeError as e:
             sys.exit(f"error: {e}")
 

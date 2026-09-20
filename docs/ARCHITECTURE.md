@@ -14,10 +14,22 @@ See the design discussion in `docs/`. Core principles:
 
 ## Layout
 
-- `extension/oneai/` — pi extension (TypeScript): registers vault tools + slash
-  commands, bridges to the Python CLI via `pi.exec`. This is the main UI.
-- `oneai/` — core: config, vault, indexer (FTS5), ledger, events, LLM, agent, CLI
-- `connectors/outlook/` — Microsoft Graph (personal accounts, device-code auth) — **deferred** (Azure app registration postponed per 2026-09-20 decision; drafting will be strictly user-triggered, never automatic)
+- `oneai/runtime.py` — extensible agent runtime (pi-style): tool/command
+  registries, lifecycle hooks, auto-discovery of extensions, permission gates
+- `oneai/tui.py` — standalone TUI: slash commands, Tab completion, Markdown
+  rendering, confirm modal for gated tools
+- `oneai/` (其余) — vault, indexer (FTS5), ledger, events, LLM, CLI
+- `extension/oneai/` — optional pi bridge (legacy)
+- `connectors/outlook/` — Microsoft Graph — **deferred** (2026-09-20 decision:
+  drafting strictly user-triggered, never automatic)
+
+## Extension system
+
+Extensions live in `~/.oneai/extensions/*.py` (global) or `.oneai/extensions/*.py`
+(project). Each exposes `setup(rt)`. Hooks: `before_agent_start` (append system
+prompt), `tool_call` (return `{"block": True, "reason": ...}` to block),
+`tool_result`, `agent_end`. Tools with `confirm=True` pop a user approval gate.
+`/reload` hot-reloads.
 - `ios/` — SwiftUI app (thin client over the iCloud-synced vault)
 - `docs/` — design docs and ADRs
 
