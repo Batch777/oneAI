@@ -318,10 +318,12 @@ class OneAIApp(App):
     #completion.visible { display: block; }
     #status { height: auto; padding: 0 1; color: $warning; display: none; }
     #status.visible { display: block; }
-    #input-bar { height: auto; }
-    #mode { width: 12; padding: 0 1; color: black; background: $success; text-style: bold; }
+    #input-bar { height: 1; }
+    #mode { width: 12; height: 1; padding: 0 1; color: black; background: $success; text-style: bold; content-align: center middle; }
     #mode.normal { background: $primary; }
-    #input { width: 1fr; height: auto; background: $boost; padding: 0 1; }
+    /* pi-style prompt: no border (cleaner + nothing boxy leaks into copies) */
+    #input { width: 1fr; height: 1; border: none; background: $boost; padding: 0 1; }
+    #input:focus { border: none; background: $surface-lighten-1; }
     ConfirmScreen { align: center middle; }
     ConfirmScreen Label { width: 60; padding: 1 2; background: $surface; }
     """
