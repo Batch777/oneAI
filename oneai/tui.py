@@ -18,7 +18,8 @@ from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.screen import ModalScreen
-from textual.widgets import Footer, Header, Input, Label, RichLog
+from textual.widgets import Footer, Header, Input, Label, OptionList, RichLog
+from textual.widgets.option_list import Option
 
 from .config import Config
 from .runtime import Command, Runtime
@@ -47,17 +48,45 @@ class ConfirmScreen(ModalScreen[bool]):
 
 
 class CommandInput(Input):
-    BINDINGS = [Binding("tab", "complete", "补全", show=False)]
+    BINDINGS = [
+        Binding("tab", "complete", "补全", show=False),
+        Binding("up", "comp_up", show=False),
+        Binding("down", "comp_down", show=False),
+        Binding("enter", "submit_or_complete", show=False),
+        Binding("escape", "comp_dismiss", show=False),
+    ]
 
     def action_complete(self) -> None:
         app: OneAIApp = self.app  # type: ignore[assignment]
-        app.complete_input()
+        app.apply_completion()
+
+    def action_comp_up(self) -> None:
+        app: OneAIApp = self.app  # type: ignore[assignment]
+        app.move_completion(-1)
+
+    def action_comp_down(self) -> None:
+        app: OneAIApp = self.app  # type: ignore[assignment]
+        app.move_completion(1)
+
+    def action_submit_or_complete(self) -> None:
+        app: OneAIApp = self.app  # type: ignore[assignment]
+        # If the menu is showing a strict prefix, Enter picks the highlighted
+        # item (pi/Claude Code behavior); exact commands submit directly.
+        if app.completion_active():
+            app.apply_completion()
+        else:
+            self.post_message(Input.Submitted(self, self.value))
+
+    def action_comp_dismiss(self) -> None:
+        app: OneAIApp = self.app  # type: ignore[assignment]
+        app.hide_completion()
 
 
 class OneAIApp(App):
     CSS = """
     #chat { height: 1fr; border: solid $primary; }
-    #hint { height: auto; color: $text-muted; padding: 0 1; }
+    #completion { height: auto; max-height: 9; display: none; border: solid $secondary; }
+    #completion.visible { display: block; }
     #input { height: auto; }
     ConfirmScreen { align: center middle; }
     ConfirmScreen Label { width: 60; padding: 1 2; background: $surface; }
@@ -88,8 +117,8 @@ class OneAIApp(App):
     def compose(self) -> ComposeResult:
         yield Header()
         yield RichLog(id="chat", markup=True, wrap=True)
-        yield Label("", id="hint")
-        yield CommandInput(placeholder="直接输入提问；/ 开头为命令（Tab 补全），/help 查看全部", id="input")
+        yield OptionList(id="completion")
+        yield CommandInput(placeholder="直接输入提问；/ 开头为命令（↑↓ 选择，Tab 补全）", id="input")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -104,40 +133,74 @@ class OneAIApp(App):
     def chat(self) -> RichLog:
         return self.query_one("#chat", RichLog)
 
-    # --- command registry & completion ---------------------------------------
+    # --- command registry & vertical completion menu ----------------------
 
     def all_commands(self) -> list[Command]:
         return self.UI_COMMANDS + list(self.runtime.commands.values())
 
-    def complete_input(self) -> None:
-        box = self.query_one("#input", Input)
-        text = box.value
-        if not text.startswith("/"):
+    def _comp_matches(self, text: str) -> list[Command]:
+        if not text.startswith("/") or " " in text:
+            return []
+        matches = [c for c in self.all_commands() if f"/{c.name}".startswith(text)]
+        # exact single match → already complete, no menu needed
+        if len(matches) == 1 and text == f"/{matches[0].name}":
+            return []
+        return matches
+
+    def completion_active(self) -> bool:
+        ol = self.query_one("#completion", OptionList)
+        return ol.has_class("visible") and ol.option_count > 0
+
+    def move_completion(self, delta: int) -> None:
+        """↑/↓ navigate the menu while focus stays in the input."""
+        if not self.completion_active():
             return
-        matches = [f"/{c.name}" for c in self.all_commands() if f"/{c.name}".startswith(text)]
+        ol = self.query_one("#completion", OptionList)
+        hl = ol.highlighted or 0
+        ol.highlighted = (hl + delta) % ol.option_count
+
+    def apply_completion(self) -> None:
+        """Tab/Enter: fill the highlighted (or common-prefix) completion."""
+        box = self.query_one("#input", Input)
+        matches = self._comp_matches(box.value)
         if not matches:
             return
-        if len(matches) == 1:
-            box.value = matches[0] + " "
+        ol = self.query_one("#completion", OptionList)
+        picked = matches[ol.highlighted or 0] if self.completion_active() else None
+        if picked is None and len(matches) == 1:
+            picked = matches[0]
+        if picked is not None:
+            box.value = f"/{picked.name}" + (" " if picked.argument_hint else "")
         else:
-            prefix = matches[0]
-            while not all(m.startswith(prefix) for m in matches):
+            names = [f"/{c.name}" for c in matches]
+            prefix = names[0]
+            while not all(n.startswith(prefix) for n in names):
                 prefix = prefix[:-1]
             box.value = prefix
         box.cursor_position = len(box.value)
+        self._refresh_completion(box.value)
+
+    def hide_completion(self) -> None:
+        self.query_one("#completion", OptionList).remove_class("visible")
+
+    def _refresh_completion(self, text: str) -> None:
+        ol = self.query_one("#completion", OptionList)
+        matches = self._comp_matches(text)
+        ol.clear_options()
+        if not matches:
+            ol.remove_class("visible")
+            return
+        for c in matches:
+            hint = f" {c.argument_hint}" if c.argument_hint else ""
+            ol.add_option(Option(f"[bold]/{c.name}[/bold]{hint}  [dim]{c.description}[/dim]"))
+        ol.highlighted = 0
+        ol.add_class("visible")
 
     def on_input_changed(self, event: Input.Changed) -> None:
         try:
-            hint = self.query_one("#hint", Label)
+            self._refresh_completion(event.value)
         except Exception:  # widget gone during shutdown
             return
-        text = event.value
-        if text.startswith("/"):
-            matches = [c for c in self.all_commands() if f"/{c.name}".startswith(text)]
-            hint.update("  |  ".join(
-                f"[bold]/{c.name}[/bold] {c.argument_hint} {c.description}" for c in matches[:3]))
-        else:
-            hint.update("")
 
     # --- dispatch --------------------------------------------------------------
 
@@ -145,7 +208,7 @@ class OneAIApp(App):
         box = self.query_one("#input", Input)
         text = box.value.strip()
         box.value = ""
-        self.query_one("#hint", Label).update("")
+        self.hide_completion()
         if not text:
             return
         if not text.startswith("/"):
