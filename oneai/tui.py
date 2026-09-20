@@ -84,8 +84,9 @@ class CommandInput(Input):
 
 class OneAIApp(App):
     CSS = """
-    #chat { height: 1fr; border: solid $primary; }
-    #completion { height: auto; max-height: 9; display: none; border: solid $secondary; }
+    /* No borders: box-drawing chars would end up in mouse-selected copies. */
+    #chat { height: 1fr; }
+    #completion { height: auto; max-height: 9; display: none; }
     #completion.visible { display: block; }
     #input { height: auto; }
     ConfirmScreen { align: center middle; }
