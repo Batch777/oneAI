@@ -1,0 +1,15 @@
+# Private data — never commit
+vault/
+state/
+*.token_cache.json
+.env
+
+# Python
+__pycache__/
+*.egg-info/
+.venv/
+dist/
+build/
+
+# OS
+.DS_Store
