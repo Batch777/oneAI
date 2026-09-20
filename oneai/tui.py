@@ -316,6 +316,8 @@ class OneAIApp(App):
     #chat { height: 1fr; padding: 0 1; }
     #completion { height: auto; max-height: 9; display: none; }
     #completion.visible { display: block; }
+    #status { height: auto; padding: 0 1; color: $warning; display: none; }
+    #status.visible { display: block; }
     #input-bar { height: auto; }
     #mode { width: 12; padding: 0 1; color: black; background: $success; text-style: bold; }
     #mode.normal { background: $primary; }
@@ -347,7 +349,7 @@ class OneAIApp(App):
             self.exit()
         else:
             self._last_ctrl_d = now
-            self.chat().write("[dim]再按一次 Ctrl+D 退出[/dim]")
+            self.show_status("再按一次 Ctrl+D 退出")
 
     UI_COMMANDS = [
         Command("help", "显示帮助"),
@@ -374,6 +376,7 @@ class OneAIApp(App):
         yield Header()
         yield ChatLog(id="chat", markup=True, wrap=True)
         yield OptionList(id="completion")
+        yield Label("", id="status")
         with Horizontal(id="input-bar"):
             yield Label("INSERT", id="mode")
             yield CommandInput(placeholder="直接输入提问；/ 开头为命令；Esc 进入 NORMAL", id="input")
@@ -461,6 +464,12 @@ class OneAIApp(App):
         box.cursor_position = len(box.value)
         self._refresh_completion(box.value)
 
+    def show_status(self, text: str) -> None:
+        """Transient hint line above the input (not written into the chat)."""
+        label = self.query_one("#status", Label)
+        label.update(text)
+        label.set_class(bool(text), "visible")
+
     def hide_completion(self) -> None:
         self.query_one("#completion", OptionList).remove_class("visible")
 
@@ -480,6 +489,8 @@ class OneAIApp(App):
     def on_input_changed(self, event: Input.Changed) -> None:
         try:
             self._refresh_completion(event.value)
+            if event.value:
+                self.show_status("")  # typing clears transient hints
         except Exception:  # widget gone during shutdown
             return
 
@@ -490,6 +501,7 @@ class OneAIApp(App):
         text = box.value.strip()
         box.value = ""
         self.hide_completion()
+        self.show_status("")
         if not text:
             return
         if not text.startswith("/"):

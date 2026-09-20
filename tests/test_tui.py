@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 
 from textual.events import MouseScrollUp
-from textual.widgets import Input, OptionList
+from textual.widgets import Input, Label, OptionList
 
 from oneai.tui import OneAIApp, WHEEL_SCROLL_LINES
 
@@ -158,8 +158,11 @@ class TestEditorKeys:
             await pilot.press("ctrl+d")
             await pilot.pause(0.2)
             assert not exited  # first press only warns
+            # hint shows in the bottom status line, not the chat history
+            status = str(app.query_one("#status", Label).render())
+            assert "再按一次" in status
             chat = "\n".join(str(l.text) for l in app.query_one("#chat").lines)
-            assert "再按一次" in chat
+            assert "再按一次" not in chat
             await pilot.press("ctrl+d")
             assert exited  # second press quits
 
