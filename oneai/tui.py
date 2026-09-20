@@ -24,6 +24,26 @@ from textual.widgets.option_list import Option
 from .config import Config
 from .runtime import Command, Runtime
 
+WHEEL_SCROLL_LINES = 6   # pi: 5 for trackpad; slightly faster per request
+LINE_SCROLL_LINES = 2    # ↑/↓ step when the completion menu is hidden
+
+
+class ChatLog(RichLog):
+    """RichLog with pi-style faster wheel scrolling.
+
+    Textual dispatches _on_<event> across the whole MRO, so we can't override
+    _on_mouse_scroll_up without Widget's handler also firing. Instead we
+    override the pointer-scroll primitives it delegates to.
+    """
+
+    def _scroll_up_for_pointer(self, animate: bool = False) -> bool:
+        self.scroll_relative(y=-WHEEL_SCROLL_LINES, animate=False)
+        return True
+
+    def _scroll_down_for_pointer(self, animate: bool = False) -> bool:
+        self.scroll_relative(y=WHEEL_SCROLL_LINES, animate=False)
+        return True
+
 
 class ConfirmScreen(ModalScreen[bool]):
     """Permission gate modal (pi-style confirm for sensitive tool calls)."""
@@ -54,7 +74,19 @@ class CommandInput(Input):
         Binding("down", "comp_down", show=False),
         Binding("enter", "submit_or_complete", show=False),
         Binding("escape", "comp_dismiss", show=False),
+        # Input's own ctrl+u/ctrl+d (delete-line / delete-char) are overridden:
+        # transcript scrolling takes precedence (pi-style).
+        Binding("ctrl+u", "scroll_half_up", show=False),
+        Binding("ctrl+d", "scroll_half_down", show=False),
     ]
+
+    def action_scroll_half_up(self) -> None:
+        app: OneAIApp = self.app  # type: ignore[assignment]
+        app.action_scroll_half_up()
+
+    def action_scroll_half_down(self) -> None:
+        app: OneAIApp = self.app  # type: ignore[assignment]
+        app.action_scroll_half_down()
 
     def action_complete(self) -> None:
         app: OneAIApp = self.app  # type: ignore[assignment]
@@ -65,14 +97,14 @@ class CommandInput(Input):
         if app.completion_active():
             app.move_completion(-1)
         else:
-            app.chat().scroll_up()  # single-line transcript scroll (pi: lineUp)
+            app.chat().scroll_relative(y=-LINE_SCROLL_LINES, animate=False)
 
     def action_comp_down(self) -> None:
         app: OneAIApp = self.app  # type: ignore[assignment]
         if app.completion_active():
             app.move_completion(1)
         else:
-            app.chat().scroll_down()
+            app.chat().scroll_relative(y=LINE_SCROLL_LINES, animate=False)
 
     def action_submit_or_complete(self) -> None:
         app: OneAIApp = self.app  # type: ignore[assignment]
@@ -116,10 +148,10 @@ class OneAIApp(App):
         self.chat().scroll_page_down()
 
     def action_scroll_half_up(self) -> None:
-        self.chat().scroll_up(lines=max(1, self.chat().size.height // 2))
+        self.chat().scroll_relative(y=-max(1, self.chat().size.height // 2), animate=False)
 
     def action_scroll_half_down(self) -> None:
-        self.chat().scroll_down(lines=max(1, self.chat().size.height // 2))
+        self.chat().scroll_relative(y=max(1, self.chat().size.height // 2), animate=False)
 
     UI_COMMANDS = [
         Command("help", "显示帮助"),
@@ -143,7 +175,7 @@ class OneAIApp(App):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        yield RichLog(id="chat", markup=True, wrap=True)
+        yield ChatLog(id="chat", markup=True, wrap=True)
         yield OptionList(id="completion")
         yield CommandInput(placeholder="直接输入提问；/ 开头为命令（↑↓ 选择，Tab 补全）", id="input")
 
