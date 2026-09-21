@@ -18,6 +18,7 @@ from rich.markdown import Markdown
 from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
+from textual.containers import Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Input, Label, OptionList, RichLog
 from textual.widgets.option_list import Option
@@ -318,12 +319,14 @@ class OneAIApp(App):
     CSS = """
     /* No borders: box-drawing chars would end up in mouse-selected copies. */
     #chat { height: 1fr; padding: 0 1; }
+    /* bottom zone is one uniform panel (pi footer-dock style) */
+    #bottom { height: auto; background: $surface; }
     #completion { height: auto; max-height: 9; display: none; }
     #completion.visible { display: block; }
-    #status { height: auto; padding: 0 1; color: $warning; display: none; }
+    #status { height: auto; padding: 0 2; color: $warning; display: none; }
     #status.visible { display: block; }
-    /* mode badge: own row, centered, breathing room */
-    #mode { width: 1fr; height: 1; text-align: center; color: $success; text-style: bold; margin-top: 1; }
+    /* mode badge: own row, centered, blends into the panel */
+    #mode { width: 1fr; height: 1; text-align: center; color: $success; text-style: bold; }
     #mode.normal { color: $primary; }
     /* rounded prompt box (pi-style) */
     #input { width: 1fr; height: 3; border: round $secondary; background: $boost; padding: 0 1; margin-bottom: 1; }
@@ -391,10 +394,11 @@ class OneAIApp(App):
     def compose(self) -> ComposeResult:
         # pi-like minimal chrome: no header bar, straight into the transcript
         yield ChatLog(id="chat", markup=True, wrap=True)
-        yield OptionList(id="completion")
-        yield Label("", id="status")
-        yield Label("-- INSERT --", id="mode")
-        yield CommandInput(placeholder="直接输入提问；/ 开头为命令；Esc 进入 NORMAL", id="input")
+        with Vertical(id="bottom"):
+            yield OptionList(id="completion")
+            yield Label("-- INSERT --", id="mode")
+            yield CommandInput(placeholder="直接输入提问；/ 开头为命令；Esc 进入 NORMAL", id="input")
+            yield Label("", id="status")
 
     def on_mount(self) -> None:
         self.title = "oneAI"
