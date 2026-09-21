@@ -49,7 +49,7 @@ oneai ask-legacy '问题'                 # 已归档的 Python agent
 
 旧 UI、图片渲染、滚轮调试和 Python Runtime 位于 `oneai/legacy/`，不会被主路径导入；说明见 [legacy](oneai/legacy/README.md)。原 `ask` 和 `wheel-debug` 命令改为明确的 `*-legacy` 名称。
 
-Outlook 已有独立的只读授权与可续传 delta 收信入口；安装 `.[outlook]` 后按 [部署说明](docs/OUTLOOK-DEPLOYMENT.md) 操作。香港主机已完成真实邮箱只读授权，初次导入 1,980 封收件箱邮件；邮件事件接入独立任务 worker，当前生成规则模板。ledger 仍为实验骨架。
+Outlook 已有独立的只读授权与可续传 delta 收信入口；安装 `.[outlook]` 后按 [部署说明](docs/OUTLOOK-DEPLOYMENT.md) 操作。香港主机已完成真实邮箱只读授权，截至 2026-09-21 21:06 已导入 6,758 封收件箱邮件；邮件事件接入独立任务 worker，当前生成规则模板。ledger 仍为实验骨架。
 
 本地论文实验见 `scripts/paper_pilot.py`（需 pypdf）、`scripts/paper_docling_pilot.py` 和 `scripts/paper_embedding_pilot.py`；原文与输出留在本机，尚未接入主检索。
 

@@ -5,8 +5,7 @@ After=network.target
 User=oneai
 Group=oneai
 WorkingDirectory=/opt/oneai
-Environment=ONEAI_STATE_PATH=/var/lib/oneai/state
-Environment=ONEAI_VAULT_PATH=/var/lib/oneai/vault
+EnvironmentFile=/etc/oneai/outlook.env
 Environment=ONEAI_APP_ORIGIN=https://47.82.117.21
 ExecStart=/opt/oneai/.venv/bin/python -m oneai.web serve
 Restart=on-failure
