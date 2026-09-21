@@ -33,7 +33,7 @@ MIN_CHUNK_CHARS = 60  # only merge near-empty chunks (lone headings) into the ne
 
 # Generated artifacts are NOT knowledge sources — never index them,
 # otherwise stale drafts feed back into answers.
-EXCLUDED_PREFIXES = ("inbox/drafts",)
+EXCLUDED_PREFIXES = ("inbox/drafts", "inbox/tasks", "inbox/commands")
 
 
 @dataclass

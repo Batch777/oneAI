@@ -50,7 +50,13 @@ def main() -> None:
 
     sub.add_parser("status", help="show ledger counts and recent events")
 
+    p_task = sub.add_parser("task", help="create, inspect and review persistent tasks")
+    p_task.add_argument("task_args", nargs=argparse.REMAINDER)
     args = p.parse_args()
+    if args.cmd == "task":
+        from .tasks import main as task_main
+        task_main(args.task_args)
+        return
 
     # Load the checked-out extension explicitly; no global symlink required.
     if args.cmd in (None, "tui"):

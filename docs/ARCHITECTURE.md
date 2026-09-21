@@ -15,6 +15,14 @@ flowchart LR
     IDX --> CACHE[可重建 index.sqlite]
     SAVE --> MD
     WATCH[独立 watch 进程] --> IDX
+    MAIL[Outlook 只读收信：待授权] --> EVENTS[持久邮件事件]
+    EVENTS --> WORKER[独立后台 worker]
+    PHONE[手机 iCloud 指令] --> MAC[Mac worker]
+    MAC --> TASKS[任务库与版本核对]
+    WORKER --> TASKS
+    WORKER --> IDX
+    TASKS --> VIEW[Markdown 进度与待填模板]
+    VIEW --> REVIEW[人工修订 / 核对 / 归档]
 ```
 
 ## 一致性与边界
@@ -31,7 +39,7 @@ flowchart LR
 
 `oneai/legacy/` 只通过显式 legacy 命令启用；主路径不导入 Textual、Pillow 或旧 Runtime。默认 Python 测试只运行 `tests/core/`；Node 桥接与真实 pi 扩展加载测试在 `tests/extension/`。没有安装 pi 时，其特定集成测试跳过。
 
-`connectors/outlook/` 已提供只读授权与持久化 delta 收信，部署单元在 `deploy/systemd/`，尚未实际授权或部署。`work` 表只是待处理事件队列，不能视为完整任务执行器。`ledger.py` 仍是实验骨架；两者不提供 exactly-once 对外操作承诺。详见 OUTLOOK-DEPLOYMENT.md。
+`connectors/outlook/` 已提供只读授权与持久化 delta 收信，部署单元在 `deploy/systemd/`，邮箱尚未实际授权。`work` 表由独立 worker 幂等消费，形成可修订、核对和归档的任务；当前只生成本地待填模板。`ledger.py` 仍是实验骨架；两者不提供 exactly-once 对外操作承诺。详见 OUTLOOK-DEPLOYMENT.md。
 
 ## 运行与备份
 
@@ -42,6 +50,6 @@ flowchart LR
 | ONEAI_PYTHON / ONEAI_CLI | pi 桥接进程；启动器自动设置 Python，CLI 显式覆盖优先 |
 | DEEPSEEK_API_KEY / DEEPSEEK_BASE_URL / ONEAI_MODEL | 仅独立 draft/legacy 模型调用配置；pi 采用自己的模型配置 |
 
-必须备份 vault 与 sources.sqlite；index.sqlite 可重建。历史快照暂无自动清理或彻底遗忘命令。任务状态、审批、发送回执等未来也属于必须备份的权威数据。
+必须备份 vault 与 sources.sqlite；index.sqlite 可重建。历史快照暂无自动清理或彻底遗忘命令。当前 tasks.sqlite（任务、修订历史、核对记录）和 outlook.sqlite 也必须备份；令牌缓存按敏感凭证保护。
 
-`oneai watch` 只负责索引，不是后台任务服务。仓库尚无已部署的云端 worker 或手机审批服务。`scripts/paper_pilot.py` 提供独立的本地 PDF 页码索引实验，尚未接入 oneai 主检索。
+`oneai watch` 只负责索引，不是后台任务服务。新增 `oneai.worker` 负责独立任务处理；Mac LaunchAgent 已运行，云端使用 systemd。手机 iCloud 文件入口依赖 Mac 在线，尚无云端手机 API。`scripts/paper_pilot.py` 提供独立的本地 PDF 页码索引实验，尚未接入 oneai 主检索。

@@ -1,12 +1,12 @@
 # 个人 Outlook：只读接入与低预算部署
 
-状态（2026-09-21）：代码和本地回归测试已准备；微软 oneAIDemo 应用已注册成功，仅支持个人 Microsoft 账户；设备代码登录开关与邮箱授权待完成。云主机购买和线上运行尚未完成。
+状态（2026-09-21）：代码和本地回归测试已准备；微软 oneAIDemo 应用已注册成功，仅支持个人 Microsoft 账户；设备代码登录开关与邮箱授权待完成。用户自行购买的阿里云香港主机已部署，独立任务 worker 已 active/enabled；Outlook 收信 timer 尚未启用。
 
 ## 选择
 
 当前采用个人账户的 Microsoft Graph delegated `Mail.Read` + device-code 登录 + 后台 delta 轮询。用户的需求是让 oneAI 持续读取邮箱，不是邮件自动转发规则。没有 `Mail.Send`，不自动发送邮件，不需要先开放公网回调地址、购买域名或租用 URL 转发服务。
 
-每月预算上限人民币 30 元。已在登录后的阿里云购买页核对：新加坡国际型 2 vCPU / 1 GiB / 30 GiB / 1 IPv4，Ubuntu 24.04，1 个月应付 28 元，自动续费已关闭。购买协议确认仍待用户答复，未提交订单。页面长期时长也显示折合 28 元/月，未来续费仍以届时账单为准；不能用未核实的首年活动价当成长期成本，也不能把年付摊销当成已授权一次支付全年。仅运行收信、SQLite 和任务队列，不在小主机安装论文模型。若没有合适套餐，保持未购买状态。
+每月预算上限人民币 30 元。用户自行开通香港 Ubuntu 24.04 主机（2 vCPU / 1 GiB / 30 GiB），本次没有代购或新增付费项目。此前核对的新加坡 28 元/月仅为未购买方案，不能当作香港主机的实付或续费价格。云端只运行收信与轻量任务，不安装论文模型。
 
 [AWS 官方套餐说明](https://docs.aws.amazon.com/lightsail/latest/userguide/amazon-lightsail-bundles.html)列出的低价方案包含 IPv6-only 限制，不能只比较标价：还要核验 Microsoft 登录和 Graph 的出站可达性、汇率与税费。因此暂不把它作为已验证的替代部署。
 
@@ -41,7 +41,7 @@ sudo -u oneai env ONEAI_GRAPH_CLIENT_ID='<client-id>' ONEAI_STATE_PATH=/var/lib/
 
 ## 尚未实现／必须验证
 
-`work` 表目前只持久化 pending 事件，尚无自动研究、草稿生成、手机通知或审批执行器。不能把“已收信”当成“已完成处理”。后续应消费事件生成有来源的建议，完成后单独更新任务状态。
+`work` 表已由独立 worker 幂等消费，生成有来源的待填模板，支持版本修订、人工核对及归档，见 [任务流程](TASK-WORKFLOW.md)。尚无自动研究、模型语义处理、手机推送或对外发送实现。不能把“模板已生成”当成“事项已办结”。
 
 生产验收仍需：真实账号初次同步、断网续传、授权撤回、Mac 离线时定时器继续运行。Graph 429/5xx 当前由下一次 timer 重试，没有精确遵守 Retry-After 的退避调度；410/delta token 失效会失败保留状态，尚无自动全量重建与缺失邮件核对。没有公网手机界面，iCloud 也不是 Linux 可依赖的同步 API。以上限制应在无人值守上线前补齐，而非仅启动 timer 即宣称完成。
 
@@ -51,3 +51,16 @@ sudo -u oneai env ONEAI_GRAPH_CLIENT_ID='<client-id>' ONEAI_STATE_PATH=/var/lib/
 - [Message delta query](https://learn.microsoft.com/en-us/graph/delta-query-messages)
 - [Outlook immutable IDs](https://learn.microsoft.com/en-us/graph/outlook-immutable-id)
 - [阿里云轻量服务器](https://www.aliyun.com/product/swas)
+
+
+## 2026-09-21 部署记录
+
+- 主机：香港 `Ubuntu-blgl`，Ubuntu 24.04，Python 3.12.3。
+- 使用阿里云命令助手上传程序包；包内无私人资料、令牌、模型或旧实现。
+- SHA-256：`c719c02c6574899d8756e476e62e78194660ac675c3e386bd77f2c70629f32ab`。
+- 安装执行 ID：`t-hk06xpztpz0xm2o`；17:10:29 完成，退出码 0。
+- 验证输出：校验和 OK、`ONEAI_SMOKE_OK`、服务 `active`、开机启动 `enabled`、`ONEAI_DEPLOY_OK`。
+- 实际任务测试使用临时目录，验证 pending → needs_review 后自动清理，不向正式任务库加入测试事项。
+- `/etc/oneai/outlook.env` 已配置注册的应用 ID；没有邮箱令牌，收信 timer 保持未启用。
+- Mac 同时安装用户 LaunchAgent `com.oneai.worker`，已观察多个正常处理周期。iCloud 指令目录已创建。
+- 云端和 Mac 目前是独立节点，尚未双向同步；云端也尚未导入个人资料或论文索引。

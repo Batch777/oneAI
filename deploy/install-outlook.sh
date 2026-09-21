@@ -13,7 +13,7 @@ install -d -m 0755 /opt/oneai
 cp -R oneai connectors pyproject.toml /opt/oneai/
 python3 -m venv /opt/oneai/.venv
 /opt/oneai/.venv/bin/python -m pip install '/opt/oneai[outlook]'
-install -m 0644 deploy/systemd/oneai-outlook.service deploy/systemd/oneai-outlook.timer /etc/systemd/system/
+install -m 0644 deploy/systemd/oneai-outlook.service deploy/systemd/oneai-outlook.timer deploy/systemd/oneai-worker.service /etc/systemd/system/
 if [ ! -f /etc/oneai/outlook.env ]; then
     install -m 0640 -o root -g oneai deploy/outlook.env.example /etc/oneai/outlook.env
 fi

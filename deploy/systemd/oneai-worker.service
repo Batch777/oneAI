@@ -1,0 +1,22 @@
+[Unit]
+Description=oneAI durable task preparation
+After=network-online.target
+
+[Service]
+Type=simple
+User=oneai
+Group=oneai
+WorkingDirectory=/opt/oneai
+EnvironmentFile=/etc/oneai/outlook.env
+ExecStart=/opt/oneai/.venv/bin/python -m oneai.worker --interval 30
+Restart=on-failure
+RestartSec=30
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/oneai
+
+[Install]
+WantedBy=multi-user.target
