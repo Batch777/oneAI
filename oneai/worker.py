@@ -81,6 +81,9 @@ def process(cfg: Config, tasks: Tasks) -> int:
 
 def tick(cfg: Config) -> dict:
     cfg.ensure_dirs()
+    if (cfg.state_path/'cloud-sync.json').exists():
+        from .sync import sync_once, SSHRemote
+        return sync_once(cfg, SSHRemote(json.loads((cfg.state_path/'cloud-sync.json').read_text())))
     tasks = Tasks(cfg.state_path/'tasks.sqlite')
     try:
         counts = {'mail':ingest_mail(cfg,tasks),'commands':ingest_commands(cfg,tasks),'prepared':process(cfg,tasks)}

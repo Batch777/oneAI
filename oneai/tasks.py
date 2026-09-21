@@ -104,7 +104,22 @@ def main(argv=None):
         child = sub.add_parser(action); child.add_argument('task_id'); child.add_argument('--revision',type=int,required=True)
         if action == 'revise': child.add_argument('--body',required=True)
     args = parser.parse_args(argv)
-    cfg = Config.load(); cfg.ensure_dirs(); store = Tasks(cfg.state_path/'tasks.sqlite')
+    cfg = Config.load(); cfg.ensure_dirs()
+    cloud_config = cfg.state_path/'cloud-sync.json'
+    if cloud_config.exists():
+        from .sync import SSHRemote
+        remote = SSHRemote(json.loads(cloud_config.read_text()))
+        try:
+            if args.action == 'list': value = remote({'action':'tasks'})['tasks']
+            elif args.action == 'show': value = remote({'action':'task','task_id':args.task_id})
+            else:
+                command = {**vars(args),'id':uuid.uuid4().hex}
+                value = remote({'action':'command','command':command})
+                value['task_id'] = digest('phone:'+command['id'])[:24] if args.action=='create' else args.task_id
+            print(json.dumps(value,ensure_ascii=False,indent=2))
+        except (ValueError,ConnectionError) as error: parser.exit(2,str(error)+'\n')
+        return
+    store = Tasks(cfg.state_path/'tasks.sqlite')
     try:
         if args.action == 'list':
             value = [dict(row) for row in store.db.execute('SELECT id,title,status,revision,updated FROM tasks ORDER BY updated DESC')]

@@ -119,6 +119,8 @@ def select_lines(raw: str, lines: str | None) -> str:
 def atomic_write(path: Path, text: str) -> None:
     """Publish complete UTF-8 files; never expose a partially written draft."""
     path.parent.mkdir(parents=True, exist_ok=True)
+    if path.is_file() and not path.is_symlink() and path.read_bytes() == text.encode("utf-8"):
+        return
     fd, temporary = tempfile.mkstemp(prefix=".oneai-", dir=path.parent)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as stream:
