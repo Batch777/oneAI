@@ -324,15 +324,15 @@ class OneAIApp(App):
     #chat { height: 1fr; padding: 0 1; }
     /* bottom zone is one uniform panel matching the input box gray */
     #bottom { height: auto; background: $boost; }
-    #completion { height: auto; max-height: 9; display: none; }
+    #completion { height: auto; max-height: 9; display: none; background: $boost; }
     #completion.visible { display: block; }
-    #status { height: auto; padding: 0 2; color: $warning; display: none; }
-    #status.visible { display: block; }
-    /* mode badge: own row, centered, blends into the panel */
-    #mode { width: 1fr; height: 1; text-align: center; color: $success; text-style: bold; }
+    /* status row is permanent (blank = bottom margin; hint fills it, no layout shift) */
+    #status { height: 1; padding: 0 2; color: $warning; background: $boost; }
+    /* mode badge: own row, centered, same gray */
+    #mode { width: 1fr; height: 1; text-align: center; color: $success; text-style: bold; background: $boost; }
     #mode.normal { color: $primary; }
     /* rounded prompt box (pi-style) */
-    #input { width: 1fr; height: 3; border: round $secondary; background: $boost; padding: 0 1; margin-bottom: 1; }
+    #input { width: 1fr; height: 3; border: round $secondary; background: $boost; padding: 0 1; }
     #input:focus { border: round $primary; }
     ConfirmScreen { align: center middle; }
     ConfirmScreen Label { width: 60; padding: 1 2; background: $surface; }
@@ -523,10 +523,9 @@ class OneAIApp(App):
         self._refresh_completion(box.value)
 
     def show_status(self, text: str, fade_after: float | None = None) -> None:
-        """Transient hint line above the input (not written into the chat)."""
-        label = self.query_one("#status", Label)
-        label.update(text)
-        label.set_class(bool(text), "visible")
+        """Hint line below the input — a permanent row that stays blank when
+        empty (no layout shift; pi footer-style)."""
+        self.query_one("#status", Label).update(text)
         if fade_after:
             self.set_timer(fade_after, lambda: self.show_status(""))
 
