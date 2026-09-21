@@ -12,29 +12,32 @@ oneai init                       # 在 iCloud Drive 创建 vault
 oneai tui                        # 启动主界面
 ```
 
-## 主界面（oneai tui）
+## 主界面：pi + oneAI 扩展
 
-```
-┌─ oneAI ───────────────────────────────┐
-│ 你: 我本科在哪读的？                    │
-│ 🔧 vault_search(query=本科)            │
-│ 助手: 中国海洋大学 物理学 [[facts/…]]    │
-│                                       │
-│ /draft …（Tab 补全提示）               │
-│ > 直接输入提问；/ 开头为命令             │
-└───────────────────────────────────────┘
+TUI 直接使用 [pi](https://pi.dev)（内建：多行编辑器、拖拽选择复制、Kitty 内联图片、会话树、主题），oneAI 以扩展形式挂载：
+
+```bash
+oneai              # 直接启动 pi（自动挂载 oneAI 扩展，默认 deepseek-flash）
+oneai tui          # 同上
+oneai tui-legacy   # 实验性 Textual TUI（参考实现）
 ```
 
-- 对话式问答：agent 自主调用 `vault_search`/`vault_read`，回答附 `[[path#Lx-Ly]]` 引用
-- `/draft <指令>` 或对话中要求起草 → 弹确认门（y/n）→ 手稿存 `inbox/drafts/`（status: drafted）
-- `/help` `/inbox` `/reindex` `/reload` `/copy` `/new` `/resume` `/export` `/vim` `/image` `/vision` `/clear` `/quit`
-- Vim 模式（默认开）：Esc/jk 切 NORMAL，h/l/w/b/e 移动，diw/ciw/di" 等 text objects，j/k 翻输入历史
-- 输入历史持久化（~/.oneai/state/input_history.txt），↑/↓ 翻历史
-- Esc（NORMAL 下）中断 agent；状态行显示思考/回答进度与 token 用量
-- 会话自动保存，`/resume` 恢复；`/export` 导出 Markdown
-- 输入 `/` 弹出竖向补全菜单（↑↓ 选择，Tab/Enter 选中）；Shift+拖拽复制，`/copy` 复制最近回答
+- 直接对话提问 —— agent 自动调用 `vault_search` / `vault_read`，回答附 `[[path#Lx-Ly]]` 引用
+- `/draft <指令>` — 起草手稿（对话中触发 draft_create 会弹窗确认）
+- `/inbox` `/reindex` — 收件箱 / 重建索引
+- 键位：pi 默认（Ctrl+C 清空、Ctrl+D 空输入退出、Esc 中断）+ vim 模式（Esc / Ctrl+J 切 NORMAL）
 
-## 扩展系统（pi 风格）
+安装状态：
+- 扩展：`~/.pi/agent/extensions/oneai` → 软链到 `extension/oneai/`
+- vim：`pi install npm:pi-vimmode`
+- 配置：`~/.pi/agent/settings.json`（deepseek-flash 默认模型 + vim escape 别名）
+
+## 自研 TUI（实验性，保留参考）
+
+`oneai tui` —— 基于 Textual 的独立实现（vim 子集、拖拽复制、半块图像渲染），
+用于验证交互设计；日常使用以 pi 为准。
+
+## Python CLI（核心接口，独立可用）
 
 往 `~/.oneai/extensions/*.py`（全局）或 `.oneai/extensions/*.py`（项目级）放 Python 文件即可：
 

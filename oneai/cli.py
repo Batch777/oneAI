@@ -38,12 +38,25 @@ def main() -> None:
     p_draft.add_argument("instruction")
     p_draft.add_argument("--json", action="store_true")
 
-    sub.add_parser("tui", help="launch the terminal UI")
+    sub.add_parser("tui", help="launch the TUI (pi with the oneAI extension)")
+    sub.add_parser("tui-legacy", help="experimental Textual TUI (reference implementation)")
     sub.add_parser("wheel-debug", help="numeric wheel/trackpad scroll debugger")
 
     sub.add_parser("status", help="show ledger counts and recent events")
 
     args = p.parse_args()
+
+    # bare `oneai` / `oneai tui` → pi with the oneAI extension (auto-discovered
+    # from ~/.pi/agent/extensions/oneai)
+    if args.cmd in (None, "tui"):
+        import os
+        import shutil
+
+        pi = shutil.which("pi")
+        if not pi:
+            sys.exit("error: pi not found — install pi first (https://pi.dev)")
+        os.execvp(pi, [pi])
+
     cfg = Config.load()
 
     if args.cmd == "init":
@@ -132,7 +145,7 @@ def main() -> None:
         else:
             print(f"Draft saved: {rel}  (status: drafted)")
 
-    elif args.cmd == "tui":
+    elif args.cmd == "tui-legacy":
         from .tui import run
 
         run()
