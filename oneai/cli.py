@@ -13,7 +13,7 @@ from .vault import init_vault
 
 def main() -> None:
     p = argparse.ArgumentParser(prog="oneai", description="AI personal assistant")
-    sub = p.add_subparsers(dest="cmd", required=True)
+    sub = p.add_subparsers(dest="cmd")  # bare `oneai` -> tui (pi)
 
     sub.add_parser("init", help="create vault skeleton and state dirs")
 
