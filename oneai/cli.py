@@ -13,7 +13,7 @@ from .vault import init_vault, resolve_note, select_lines
 
 def main() -> None:
     p = argparse.ArgumentParser(prog="oneai", description="AI personal assistant")
-    sub = p.add_subparsers(dest="cmd")  # bare `oneai` -> tui (pi)
+    sub = p.add_subparsers(dest="cmd")  # bare `oneai` -> lightweight cloud TUI
 
     sub.add_parser("init", help="create vault skeleton and state dirs")
 
@@ -44,7 +44,9 @@ def main() -> None:
     p_watch.add_argument("--interval", type=float, default=5)
     p_watch.add_argument("--once", action="store_true")
 
-    sub.add_parser("tui", help="launch the TUI (pi with the oneAI extension)")
+    p_tui = sub.add_parser("tui", help="lightweight cloud task TUI")
+    p_tui.add_argument("--server")
+    sub.add_parser("pi", help="optional pi extension adapter")
     sub.add_parser("tui-legacy", help="experimental Textual TUI (reference implementation)")
     sub.add_parser("wheel-debug-legacy", help="archived wheel/trackpad debugger")
 
@@ -60,6 +62,10 @@ def main() -> None:
 
     # Load the checked-out extension explicitly; no global symlink required.
     if args.cmd in (None, "tui"):
+        from .terminal import main as terminal_main
+        terminal_main(["--server", args.server] if getattr(args, "server", None) else [])
+        return
+    if args.cmd == "pi":
         import os
         import shutil
 

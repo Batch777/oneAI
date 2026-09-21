@@ -73,3 +73,20 @@ def test_command_directory_parent_symlink_not_transmitted(tmp_path):
     (mac.vault_path/'inbox').symlink_to(outside)
     assert sync_once(mac,lambda r:handle(cloud,r))['commands']==0
     assert handle(cloud,{'action':'tasks'})['tasks']==[]
+
+def test_view_pagination_does_not_export_entire_vault(tmp_path,monkeypatch):
+    from oneai.tasks import Tasks
+    c=config(tmp_path)
+    store=Tasks(c.state_path/'tasks.sqlite')
+    ids={store.create(str(i),f'Task {i}','input') for i in range(105)}
+    store.db.close()
+    def forbidden(*args): raise AssertionError('Do not regenerate every task for each page')
+    monkeypatch.setattr(Tasks,'export',forbidden)
+    after=''; found=set(); sizes=[]
+    while True:
+        page=handle(c,{'action':'views','after':after})
+        found.update(name[:-3] for name in page['views']); sizes.append(len(page['views']))
+        if page['next'] is None: break
+        after=page['next']
+    assert found==ids and sizes==[50,50,5]
+    with pytest.raises(ValueError): handle(c,{'action':'views','after':'../../secret'})

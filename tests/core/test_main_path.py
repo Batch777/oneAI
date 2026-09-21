@@ -174,7 +174,7 @@ def test_old_index_schema_is_rebuilt_on_search(cfg):
 
 def test_launcher_passes_extension_and_current_python(monkeypatch):
     from oneai.cli import main
-    monkeypatch.setattr(sys, 'argv', ['oneai'])
+    monkeypatch.setattr(sys, 'argv', ['oneai', 'pi'])
     monkeypatch.delenv('ONEAI_PYTHON', raising=False)
     monkeypatch.setattr('shutil.which', lambda _: '/fake/pi')
     called = []

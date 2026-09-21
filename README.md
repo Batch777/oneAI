@@ -1,6 +1,6 @@
 # oneAI
 
-个人资料与任务助手。当前可用：Markdown 检索、版本化引用、持久规则和本地草稿。新增独立后台任务流程，支持待填模板、版本修订与核对，见 [使用说明](docs/TASK-WORKFLOW.md)。未来界面见 [下一版 spec](docs/SPEC-NEXT.md)。
+个人资料与任务助手。当前可用：Markdown 检索、版本化引用、持久规则、香港主机 Outlook 只读收信、持久任务与 Mac 双向同步。iPhone/Mac 客户端已完成隔离环境 UI 验收，公网 HTTPS 接入待确认部署。详见 [客户端验收](docs/CLIENT-ACCEPTANCE.md)、[云同步](docs/CLOUD-SYNC.md)。
 
 ## 当前入口
 
@@ -9,10 +9,11 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -e '.[dev]'
 oneai init
-oneai                         # 显式加载本仓库扩展，暂用 pi 交互
+oneai                         # 轻量云端任务 TUI，首次使用配对码
+oneai pi                      # 可选 pi 扩展入口
 ```
 
-pi 为可选交互依赖，目前已用本机 0.86.1 验证。启动器传递当前 Python 环境，不再硬编码用户路径；旧的全局 oneAI 扩展软链不再必需。外部 pi 单独启动时，需正确配置 `ONEAI_PYTHON` 或 `ONEAI_CLI`。
+pi 仅为可选适配器，默认入口已不依赖 pi；扩展曾用本机 0.86.1 验证。启动器传递当前 Python 环境，不再硬编码用户路径；旧的全局 oneAI 扩展软链不再必需。外部 pi 单独启动时，需正确配置 `ONEAI_PYTHON` 或 `ONEAI_CLI`。
 
 ## 数据与起草
 
@@ -48,7 +49,7 @@ oneai ask-legacy '问题'                 # 已归档的 Python agent
 
 旧 UI、图片渲染、滚轮调试和 Python Runtime 位于 `oneai/legacy/`，不会被主路径导入；说明见 [legacy](oneai/legacy/README.md)。原 `ask` 和 `wheel-debug` 命令改为明确的 `*-legacy` 名称。
 
-Outlook 已有独立的只读授权与可续传 delta 收信入口；安装 `.[outlook]` 后按 [部署说明](docs/OUTLOOK-DEPLOYMENT.md) 操作。尚未完成真实邮箱授权；邮件事件已接入独立任务 worker，当前生成本地待填模板。ledger 仍为实验骨架。
+Outlook 已有独立的只读授权与可续传 delta 收信入口；安装 `.[outlook]` 后按 [部署说明](docs/OUTLOOK-DEPLOYMENT.md) 操作。香港主机已完成真实邮箱只读授权，初次导入 1,980 封收件箱邮件；邮件事件接入独立任务 worker，当前生成规则模板。ledger 仍为实验骨架。
 
 本地论文实验见 `scripts/paper_pilot.py`（需 pypdf）、`scripts/paper_docling_pilot.py` 和 `scripts/paper_embedding_pilot.py`；原文与输出留在本机，尚未接入主检索。
 

@@ -174,7 +174,11 @@ def main() -> None:
             else:
                 client = OutlookClient(cfg)
                 try:
-                    print(json.dumps(client.sync()))
+                    result=client.sync()
+                    import time
+                    from oneai.vault import atomic_write
+                    atomic_write(cfg.state_path/'outlook-status.json',json.dumps({'at':time.time(),'result':result})+'\n')
+                    print(json.dumps(result))
                 finally:
                     client.store.db.close()
         except NeedsAuthorization as error:

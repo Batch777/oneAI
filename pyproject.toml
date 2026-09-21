@@ -13,8 +13,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0"]
+dev = ["pytest>=8.0", "httpx>=0.27", "fastapi==0.141.1", "uvicorn==0.53.0"]
 outlook = ["msal>=1.30"]
+app = ["fastapi==0.141.1", "uvicorn==0.53.0"]
 legacy = ["textual>=0.80", "Pillow>=10.0"]
 
 [tool.pytest.ini_options]
@@ -25,3 +26,6 @@ oneai = "oneai.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["oneai*", "connectors*"]
+
+[tool.setuptools.package-data]
+"oneai.web" = ["static/*"]

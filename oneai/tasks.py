@@ -83,11 +83,18 @@ class Tasks:
             self.db.execute('INSERT INTO receipts VALUES(?,?)',(cid,payload))
             self.db.execute('INSERT INTO history(task_id,event,detail,created) VALUES(?,?,?,?)',(task_id,action,payload,now_iso()))
 
+    @staticmethod
+    def view(row):
+        import frontmatter
+        metadata={key:row[key] for key in ('id','title','status','revision','approved_revision','updated')}
+        metadata['task_id']=metadata.pop('id')
+        body=f'# {row["title"]}\n\n{row["result"] or "等待后台处理"}\n\n## 依据\n\n'+ '\n'.join('- '+s for s in json.loads(row['sources'])) + '\n\n> 此文件是进度视图。编辑草稿请提交 revise 指令；reviewed 不代表已发送。'
+        return frontmatter.dumps(frontmatter.Post(body,**metadata))+'\n'
+
     def export(self, vault: Path):
+        from .vault import atomic_write
         for row in self.db.execute('SELECT * FROM tasks ORDER BY updated'):
-            # Views are regenerated; phone edits go through revision-checked command files.
-            write_note(vault,f'inbox/tasks/{row["id"]}.md',{'task_id':row['id'],'title':row['title'],'status':row['status'],'revision':row['revision'],'approved_revision':row['approved_revision'],'updated':row['updated']},
-                f'# {row["title"]}\n\n{row["result"] or "等待后台处理"}\n\n## 依据\n\n'+ '\n'.join('- '+s for s in json.loads(row['sources'])) + '\n\n> 此文件是进度视图。编辑草稿请提交 revise 指令；reviewed 不代表已发送。')
+            atomic_write(resolve_note(vault,f'inbox/tasks/{row["id"]}.md'),self.view(row))
 
 
 def main(argv=None):

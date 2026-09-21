@@ -85,16 +85,16 @@ def handle(cfg, request):
             return {'tasks': [dict(r) for r in tasks.db.execute('SELECT id,title,status,revision,updated FROM tasks ORDER BY updated DESC LIMIT 1000')]}
         finally: tasks.db.close()
     if action == 'views':
-        tasks = Tasks(cfg.state_path/'tasks.sqlite')
+        after=request.get('after','')
+        import re
+        if not isinstance(after,str) or (after and not re.fullmatch('[a-f0-9]{24}\\.md',after)):
+            raise ValueError('Invalid cursor')
+        tasks=Tasks(cfg.state_path/'tasks.sqlite')
         try:
-            tasks.export(cfg.vault_path)
+            rows=tasks.db.execute('SELECT * FROM tasks WHERE id>? ORDER BY id LIMIT 51',(after[:-3] if after else '',)).fetchall()
+            result={r['id']+'.md':tasks.view(r) for r in rows[:50]}
+            return {'views':result,'next':rows[49]['id']+'.md' if len(rows)>50 else None}
         finally: tasks.db.close()
-        result = {}
-        after = request.get('after', '')
-        if not isinstance(after, str): raise ValueError('Invalid cursor')
-        paths = [p for p in sorted((cfg.vault_path/'inbox/tasks').glob('*.md')) if p.name > after and not p.is_symlink()]
-        for p in paths[:50]: result[p.name] = p.read_text()
-        return {'views': result, 'next': paths[49].name if len(paths)>50 else None}
     if action == 'health': return {'protocol': 1, 'authority': 'cloud'}
     raise ValueError('Unsupported RPC action')
 

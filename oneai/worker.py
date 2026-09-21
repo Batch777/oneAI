@@ -88,6 +88,7 @@ def tick(cfg: Config) -> dict:
     try:
         counts = {'mail':ingest_mail(cfg,tasks),'commands':ingest_commands(cfg,tasks),'prepared':process(cfg,tasks)}
         tasks.export(cfg.vault_path)
+        atomic_write(cfg.state_path/'worker-status.json',json.dumps({'at':time.time(),'counts':counts})+'\n')
         return counts
     finally: tasks.db.close()
 
