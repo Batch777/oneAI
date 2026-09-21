@@ -10,6 +10,7 @@ from .config import Config
 from .context import load_context
 from .indexer import Index
 from .tasks import Tasks
+from .mailtriage import classify_pending
 from .vault import atomic_write, resolve_note
 
 
@@ -57,7 +58,7 @@ def process(cfg: Config, tasks: Tasks) -> int:
     count = 0
     try:
         index.sync(cfg.vault_path)
-        for row in tasks.db.execute("SELECT * FROM tasks WHERE status='pending' ORDER BY updated LIMIT 25").fetchall():
+        for row in tasks.db.execute("SELECT * FROM tasks WHERE status='pending' AND id NOT IN (SELECT task_id FROM mail_triage WHERE filtered=1) ORDER BY updated LIMIT 25").fetchall():
             # Conservative local baseline: no model API, no executable mailbox instructions.
             terms = re.findall(r'[A-Za-z][A-Za-z0-9_-]{2,}|[\u4e00-\u9fff]{3,8}',row['title'])[:8]
             results = []
@@ -86,7 +87,9 @@ def tick(cfg: Config) -> dict:
         return sync_once(cfg, SSHRemote(json.loads((cfg.state_path/'cloud-sync.json').read_text())))
     tasks = Tasks(cfg.state_path/'tasks.sqlite')
     try:
-        counts = {'mail':ingest_mail(cfg,tasks),'commands':ingest_commands(cfg,tasks),'prepared':process(cfg,tasks)}
+        counts = {'mail':ingest_mail(cfg,tasks),'commands':ingest_commands(cfg,tasks)}
+        counts['classified']=classify_pending(tasks)
+        counts['prepared']=process(cfg,tasks)
         tasks.export(cfg.vault_path)
         atomic_write(cfg.state_path/'worker-status.json',json.dumps({'at':time.time(),'counts':counts})+'\n')
         return counts

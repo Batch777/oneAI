@@ -102,3 +102,20 @@ def test_short_code_global_failed_attempt_budget(client):
     code=auth.pair(cfg)
     with pytest.raises(ValueError,match='too_many_attempts'):
         auth.login(cfg,code,'test','another-ip')
+
+def test_filtered_mail_visible_restorable_and_counts_match(client):
+    from oneai.tasks import Tasks
+    from oneai.mailtriage import classify_pending
+    cfg,c=client;login(cfg,c)
+    store=Tasks(cfg.state_path/'tasks.sqlite')
+    tid=store.create('mail:test-otp','验证码','验证码为 123456')
+    classify_pending(store);store.db.close()
+    assert c.get('/api/tasks').json()['total']==0
+    assert c.get('/api/tasks',params={'mail_view':'filtered'}).json()['total']==1
+    detail=c.get('/api/tasks/'+tid).json()
+    assert detail['verification']['code']=='123456' and detail['mail_classification']['filtered']==1
+    assert c.get('/api/status').json()['counts']=={}
+    assert c.post('/api/commands',json={'id':'restore-1','action':'restore_mail','task_id':tid}).status_code==200
+    assert c.get('/api/tasks').json()['total']==1
+    assert c.get('/api/tasks',params={'mail_view':'filtered'}).json()['total']==0
+    assert c.get('/api/mail/alerts').json()=={'items':[]}

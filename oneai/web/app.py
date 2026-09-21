@@ -105,11 +105,13 @@ def create_app(cfg=None,origin=None,dev=False):
         return {'ok':True}
 
     @app.get('/api/tasks')
-    def tasks(q:str='',status:str='',offset:int=0,user=Depends(authenticated)):
+    def tasks(q:str='',status:str='',offset:int=0,mail_view:str='inbox',user=Depends(authenticated)):
         if len(q)>200 or offset<0: raise HTTPException(400,'invalid_query')
         store=Tasks(cfg.state_path/'tasks.sqlite')
         try:
+            if mail_view not in ('inbox','filtered','all'): raise HTTPException(400,'invalid_mail_view')
             where=[]; values=[]
+            if mail_view!='all': where.append('id '+('IN' if mail_view=='filtered' else 'NOT IN')+' (SELECT task_id FROM mail_triage WHERE filtered=1)')
             if status:
                 if status not in ('pending','needs_review','reviewed','completed'): raise HTTPException(400,'invalid_status')
                 where.append('status=?'); values.append(status)
@@ -126,6 +128,11 @@ def create_app(cfg=None,origin=None,dev=False):
         try:
             row=store.get(task_id)
             row['sources']=json.loads(row['sources']); row['rules']=json.loads(row['rules'])
+            triage=store.db.execute('SELECT * FROM mail_triage WHERE task_id=?',(task_id,)).fetchone()
+            row['mail_classification']=dict(triage) if triage else None
+            if row['origin'].startswith('mail:'):
+                from ..mailalerts import verification_hints
+                row['verification']=verification_hints(row['title'],row['input'])
             return row
         except ValueError: raise HTTPException(404,'task_not_found')
         finally: store.db.close()
@@ -133,7 +140,7 @@ def create_app(cfg=None,origin=None,dev=False):
     @app.post('/api/commands')
     async def command(request:Request,user=Depends(authenticated)):
         data=await body(request)
-        if data.get('action') not in ('create','revise','approve','complete'): raise HTTPException(400,'unsupported_action')
+        if data.get('action') not in ('create','revise','approve','complete','restore_mail'): raise HTTPException(400,'unsupported_action')
         if not isinstance(data.get('id'),str) or len(data['id'])>128: raise HTTPException(400,'invalid_command_id')
         if data['action']=='create' and (not isinstance(data.get('title'),str) or len(data['title'])>300): raise HTTPException(400,'invalid_title')
         if data['action']!='create' and (not isinstance(data.get('task_id'),str) or not re.fullmatch('[a-f0-9]{24}',data['task_id'])): raise HTTPException(400,'invalid_task_id')
@@ -148,7 +155,7 @@ def create_app(cfg=None,origin=None,dev=False):
     @app.get('/api/status')
     def status(user=Depends(authenticated)):
         store=Tasks(cfg.state_path/'tasks.sqlite')
-        try: counts={r[0]:r[1] for r in store.db.execute('SELECT status,count(*) FROM tasks GROUP BY status')}
+        try: counts={r[0]:r[1] for r in store.db.execute('SELECT status,count(*) FROM tasks WHERE id NOT IN (SELECT task_id FROM mail_triage WHERE filtered=1) GROUP BY status')}
         finally: store.db.close()
         worker=None
         try: worker=json.loads((cfg.state_path/'worker-status.json').read_text())
@@ -157,6 +164,11 @@ def create_app(cfg=None,origin=None,dev=False):
         try: mail=json.loads((cfg.state_path/'outlook-status.json').read_text())
         except (FileNotFoundError,ValueError): pass
         return {'counts':counts,'worker':worker,'mail':mail,'time':time.time()}
+
+    @app.get('/api/mail/alerts')
+    def mail_alerts(user=Depends(authenticated)):
+        from ..mailalerts import recent_alerts
+        return {'items':recent_alerts(cfg)}
 
     @app.get('/api/search')
     def search(q:str,user=Depends(authenticated)):

@@ -84,6 +84,18 @@ final class Navigation: NSObject, WKNavigationDelegate, WKUIDelegate {
         if (error as NSError).code != NSURLErrorCancelled { failure.wrappedValue = "请检查网络和服务器地址，然后重新连接。" }
     }
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        if action.navigationType == .linkActivated, let url = action.request.url,
+           url.scheme == "https", url.host != nil, url.user == nil, url.password == nil,
+           url.host != origin.host || url.port != origin.port {
+            // Only an explicit link click may leave the workspace. The web UI
+            // asks the user to inspect the destination before verification links.
+            #if os(macOS)
+            NSWorkspace.shared.open(url)
+            #else
+            UIApplication.shared.open(url)
+            #endif
+            decisionHandler(.cancel); return
+        }
         guard let url = action.request.url, url.scheme == origin.scheme, url.host == origin.host, url.port == origin.port else { decisionHandler(.cancel); return }
         decisionHandler(.allow)
     }

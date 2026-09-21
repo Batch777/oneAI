@@ -25,6 +25,9 @@ class Tasks:
           result TEXT NOT NULL DEFAULT '', sources TEXT NOT NULL DEFAULT '[]',
           rules TEXT NOT NULL DEFAULT '[]', revision INTEGER NOT NULL DEFAULT 0,
           approved_revision INTEGER, updated TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS mail_triage(
+          task_id TEXT PRIMARY KEY,category TEXT NOT NULL,confidence REAL NOT NULL,
+          reason TEXT NOT NULL,source TEXT NOT NULL,filtered INTEGER NOT NULL,version TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS receipts(id TEXT PRIMARY KEY, payload TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS history(
           seq INTEGER PRIMARY KEY,task_id TEXT NOT NULL,event TEXT NOT NULL,
@@ -65,6 +68,9 @@ class Tasks:
                 if not isinstance(title,str) or not isinstance(body,str) or not body.strip(): raise ValueError('title and body required')
                 task_id = digest('phone:'+cid)[:24]
                 self.db.execute('INSERT INTO tasks(id,origin,title,input,updated) VALUES(?,?,?,?,?)',(task_id,'phone:'+cid,title,body,now_iso()))
+            elif action == 'restore_mail':
+                task_id=command.get('task_id'); self.get(task_id)
+                self.db.execute("UPDATE mail_triage SET filtered=0,source='user',reason='用户恢复到任务列表' WHERE task_id=?",(task_id,))
             elif action in ('revise','approve','complete'):
                 task_id = command.get('task_id')
                 row = self.get(task_id)
