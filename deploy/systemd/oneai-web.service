@@ -6,6 +6,7 @@ User=oneai
 Group=oneai
 WorkingDirectory=/opt/oneai
 EnvironmentFile=/etc/oneai/outlook.env
+Environment=ONEAI_ENABLE_SESSIONS=1
 Environment=ONEAI_APP_ORIGIN=https://47.82.117.21
 ExecStart=/opt/oneai/.venv/bin/python -m oneai.web serve
 Restart=on-failure
