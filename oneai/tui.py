@@ -337,9 +337,9 @@ class OneAIApp(App):
     #mode { width: 1fr; height: 1; text-align: center; color: $success; text-style: bold; background: $surface; }
     #mode.normal { color: $primary; }
     /* rounded prompt box (pi-style) */
-    #input { width: 1fr; height: 3; border: round $secondary; background: $surface; padding: 0 1; }
+    #input { width: 1fr; height: 3; border: round $surface-lighten-2; background: $surface; padding: 0 1; }
     /* no focus highlight — the box looks the same focused or not */
-    #input:focus { border: round $secondary; }
+    #input:focus { border: round $surface-lighten-2; }
     ConfirmScreen { align: center middle; }
     ConfirmScreen Label { width: 60; padding: 1 2; background: $surface; }
     """
