@@ -269,8 +269,11 @@ class CommandInput(Input):
         if self.vim_enabled and self.vim_mode == "normal":
             app: OneAIApp = self.app  # type: ignore[assignment]
             app.handle_ctrl_d()  # double-press quit
+        elif self.value:
+            self.value = ""  # INSERT with text: clear all
         else:
-            self.value = ""  # INSERT: clear all text
+            app2: OneAIApp = self.app  # type: ignore[assignment]
+            app2.handle_ctrl_d()  # INSERT empty: double-press quit
 
     def action_clear_input(self) -> None:
         # Ctrl+C: with vim on, enter NORMAL (user preference); off -> clear line
@@ -319,8 +322,8 @@ class OneAIApp(App):
     CSS = """
     /* No borders: box-drawing chars would end up in mouse-selected copies. */
     #chat { height: 1fr; padding: 0 1; }
-    /* bottom zone is one uniform panel (pi footer-dock style) */
-    #bottom { height: auto; background: $surface; }
+    /* bottom zone is one uniform panel matching the input box gray */
+    #bottom { height: auto; background: $boost; }
     #completion { height: auto; max-height: 9; display: none; }
     #completion.visible { display: block; }
     #status { height: auto; padding: 0 2; color: $warning; display: none; }

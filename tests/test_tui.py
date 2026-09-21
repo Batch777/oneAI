@@ -163,14 +163,16 @@ class TestEditorKeys:
             await pilot.press("ctrl+d")
             assert exited
 
-            # empty input INSERT: ctrl+d clears (no-op), does NOT quit
+            # empty input INSERT: double ctrl+d quits too
             await pilot.press("i")
             box.value = ""
             exited.clear()
             app._last_ctrl_d = 0.0
             await pilot.press("ctrl+d")
             await pilot.pause(0.2)
-            assert not exited  # second press quits
+            assert not exited  # first press warns
+            await pilot.press("ctrl+d")
+            assert exited      # second press quits
 
     def test_cursor_movement_keys(self):
         run(self._cursor())
