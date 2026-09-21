@@ -1,3 +1,5 @@
+> 2026-09-21 更新：多端 Codex/pi 会话和设备扩展以 [会话架构](SESSION-ARCHITECTURE.md) 与 [运行验收](SESSION-OPERATIONS.md) 为准；下文的后续规划不代表均已实现。
+
 # oneAI Next — 安静工作的个人助理
 
 状态：设计提案，2026-09-21。当前实现见 ARCHITECTURE.md。本 spec 的服务、网页、论文管线尚未实现，不把架构图当作交付声明。

@@ -44,6 +44,9 @@ def main() -> None:
     p_watch.add_argument("--interval", type=float, default=5)
     p_watch.add_argument("--once", action="store_true")
 
+    p_sessions = sub.add_parser("sessions", help="multi-device Codex / pi session TUI")
+    p_sessions.add_argument("--server")
+
     p_tui = sub.add_parser("tui", help="lightweight cloud task TUI")
     p_tui.add_argument("--server")
     sub.add_parser("pi", help="optional pi extension adapter")
@@ -55,6 +58,10 @@ def main() -> None:
     p_task = sub.add_parser("task", help="create, inspect and review persistent tasks")
     p_task.add_argument("task_args", nargs=argparse.REMAINDER)
     args = p.parse_args()
+    if args.cmd == "sessions":
+        from .sessions.terminal import main as session_main
+        session_main(["--server", args.server] if args.server else [])
+        return
     if args.cmd == "task":
         from .tasks import main as task_main
         task_main(args.task_args)

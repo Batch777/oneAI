@@ -33,7 +33,7 @@ def create_app(cfg=None,origin=None,dev=False):
         if request.headers.get('host')!=parsed.netloc:
             return JSONResponse({'detail':'invalid_host'},400)
         if request.method not in ('GET','HEAD','OPTIONS'):
-            if request.headers.get('origin')!=origin:
+            if not request.url.path.startswith('/api/agent-host/') and request.headers.get('origin')!=origin:
                 return JSONResponse({'detail':'origin_rejected'},403)
             if 'application/json' not in request.headers.get('content-type',''):
                 return JSONResponse({'detail':'json_required'},415)
@@ -176,12 +176,15 @@ def create_app(cfg=None,origin=None,dev=False):
         except (ValueError,FileNotFoundError,KeyError): raise HTTPException(404,'source_not_found')
         finally: idx.close()
 
+    from ..sessions.routes import mount
+    mount(app, cfg, authenticated, body)
+
     @app.get('/')
     def home(): return FileResponse(STATIC/'index.html')
 
     @app.get('/{name}')
     def static(name:str):
-        if name not in ('app.js','app.css','sw.js','manifest.webmanifest','icon.svg','icon-192.png','icon-512.png','apple-touch-icon.png'): raise HTTPException(404)
+        if name not in ('app.js','sessions.js','app.css','sw.js','manifest.webmanifest','icon.svg','icon-192.png','icon-512.png','apple-touch-icon.png'): raise HTTPException(404)
         return FileResponse(STATIC/name)
 
     return app
