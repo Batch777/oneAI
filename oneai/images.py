@@ -107,6 +107,36 @@ def display(path: Path, out=None) -> str:
     return ""
 
 
+def as_block_text(path: Path, max_cols: int = 60):
+    """Render an image as half-block truecolor text (▀ = upper/lower pixel).
+
+    Inline-safe for the chat log: plain styled text, scrolls correctly, works
+    in any truecolor terminal. (Kitty inline placement would drift on scroll
+    because RichLog scrolls without re-rendering.)
+    """
+    from PIL import Image
+    from rich.text import Text
+
+    with Image.open(path) as im:
+        im = im.convert("RGB")
+        w, h = im.size
+        cols = min(max_cols, w)
+        px_h = max(2, round(cols * h / w))
+        px_h += px_h % 2  # even number of pixel rows -> pairs
+        im = im.resize((cols, px_h))
+        px = im.load()
+
+    text = Text()
+    for y in range(0, px_h, 2):
+        for x in range(cols):
+            fr, fg_, fb = px[x, y]
+            br, bg, bb = px[x, y + 1]
+            text.append("▀", style=f"rgb({fr},{fg_},{fb}) on rgb({br},{bg},{bb})")
+        if y + 2 < px_h:
+            text.append("\n")
+    return text
+
+
 # --- vault image references (lets the agent find images itself) ---------------
 
 _IMG_REF = re.compile(r"!\[[^\]]*\]\(([^)]+)\)|([^\s!()\[\]]+\.(?:png|jpe?g|gif|webp|bmp))", re.IGNORECASE)

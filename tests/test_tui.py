@@ -265,6 +265,45 @@ class TestHistory:
             assert box.value == "newer"
 
 
+class TestDragCopy:
+    def test_drag_copies_lines(self):
+        run(self._drag())
+
+    async def _drag(self):
+        import subprocess
+
+        app = await make_app()
+        async with app.run_test(size=(80, 24)) as pilot:
+            await pilot.pause(0.5)
+            chat = app.chat()
+            chat.clear()
+            for i in range(10):
+                chat.write(f"copy-test-line-{i}")
+            await pilot.pause(0.2)
+            await pilot.mouse_down("#chat", offset=(5, 2))
+            await pilot.mouse_up("#chat", offset=(5, 4))
+            await pilot.pause(0.3)
+            clip = subprocess.run(["pbpaste"], capture_output=True).stdout.decode()
+            assert "copy-test-line-2" in clip and "copy-test-line-4" in clip
+            assert "copy-test-line-5" not in clip
+
+    def test_inline_image(self, tmp_path):
+        run(self._img(tmp_path))
+
+    async def _img(self, tmp_path):
+        from PIL import Image
+
+        p = tmp_path / "t.png"
+        Image.new("RGB", (40, 40), (200, 30, 30)).save(p)
+        app = await make_app()
+        async with app.run_test() as pilot:
+            await pilot.pause(0.5)
+            app._ui_image(str(p))
+            await pilot.pause(0.3)
+            texts = [l.text for l in app.chat().lines]
+            assert any("▀" in t for t in texts)  # half-block render inline
+
+
 class TestDispatch:
     def test_unknown_command(self):
         run(self._unknown())

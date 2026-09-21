@@ -87,11 +87,12 @@ def text_object_span(text: str, pos: int, scope: str, obj: str) -> tuple[int, in
 
 
 class ChatLog(RichLog, can_focus=False):  # no focus → no brightening on click
-    """RichLog with pi-style faster wheel scrolling.
+    """RichLog with pi-style wheel scrolling and drag-to-copy.
 
-    Textual dispatches _on_<event> across the whole MRO, so we can't override
-    _on_mouse_scroll_up without Widget's handler also firing. Instead we
-    override the pointer-scroll primitives it delegates to.
+    - Wheel: override _scroll_*_for_pointer (MRO dispatch makes _on_mouse_*
+      overrides fire twice otherwise).
+    - Drag with the primary button selects whole lines and copies them to the
+      clipboard on release (pi: drag selects + copies).
     """
 
     def _scroll_up_for_pointer(self, animate: bool = False) -> bool:
@@ -101,6 +102,30 @@ class ChatLog(RichLog, can_focus=False):  # no focus → no brightening on click
     def _scroll_down_for_pointer(self, animate: bool = False) -> bool:
         self.scroll_relative(y=WHEEL_SCROLL_LINES, animate=False)
         return True
+
+    # --- drag-to-copy (pi parity) ---------------------------------------------
+
+    def _on_mouse_down(self, event) -> None:
+        if event.button == 1:  # left button: start line selection
+            self._drag_row = event.y + self.scroll_offset.y
+            self.capture_mouse()
+            event.stop()
+
+    def _on_mouse_up(self, event) -> None:
+        start = getattr(self, "_drag_row", None)
+        self.release_mouse()
+        self._drag_row = None
+        if start is None:
+            return
+        end = event.y + self.scroll_offset.y
+        lo, hi = min(start, end), max(start, end)
+        lines = [self.lines[i].text.rstrip() for i in range(lo, min(hi + 1, len(self.lines)))]
+        text = "\n".join(l for l in lines if l)
+        if text:
+            import subprocess
+
+            subprocess.run(["pbcopy"], input=text.encode(), check=False)
+            self.app.show_status(f"✔ 已复制 {hi - lo + 1} 行", 2.0)
 
 
 class ConfirmScreen(ModalScreen[bool]):
@@ -325,7 +350,8 @@ class OneAIApp(App):
 
     CSS = """
     /* No borders: box-drawing chars would end up in mouse-selected copies. */
-    #chat { height: 1fr; padding: 0 1; background: $background; }
+    #chat { height: 1fr; padding: 0 1; background: $background;
+            scrollbar-color: $surface-lighten-1; scrollbar-color-hover: $surface-lighten-1; }
     #chat:focus { background: $background; }  # never brighten on click/focus
     #chat .option-list--option-hover { background: $background; }
     /* bottom zone blends into the transcript background — one uniform color */
@@ -685,34 +711,36 @@ class OneAIApp(App):
                           else "[dim]未发现扩展（~/.oneai/extensions/）[/dim]")
 
     def _ui_image(self, arg: str = "") -> None:
-        """Display an image inline via the Kitty graphics protocol (Ghostty)."""
+        """Inline image preview in the chat (half-block); 'full' = Kitty popup."""
         from . import images as img
 
-        path = Path(arg).expanduser()
-        if not arg or not path.exists():
-            self.chat().write("[yellow]用法: /image <图片路径>[/yellow]")
+        parts = arg.split()
+        full = "full" in parts
+        path = Path(parts[0]).expanduser() if parts else None
+        if not path or not path.exists():
+            self.chat().write("[yellow]用法: /image <图片路径> [full][/yellow]")
             return
-        with self.suspend():  # leave alt-screen, draw into normal screen
-            fallback = img.display(path)
-            if fallback:
-                subprocess.run(["open", str(path)])
-                print(fallback + "（终端不支持内联显示，已用系统预览打开）")
-            try:
-                input("（回车返回 oneAI）")
-            except EOFError:
-                pass
+        if full:
+            with self.suspend():  # leave alt-screen, draw into normal screen
+                fallback = img.display(path)
+                if fallback:
+                    subprocess.run(["open", str(path)])
+                    print(fallback + "（终端不支持内联显示，已用系统预览打开）")
+                try:
+                    input("（回车返回 oneAI）")
+                except EOFError:
+                    pass
+            return
+        self.chat().write(f"[dim]🖼 {path.name}[/dim]")
+        self.chat().write(img.as_block_text(path))
 
     def _display_image_agent(self, path: Path) -> None:
-        """Called by the runtime (worker thread) when the agent shows an image."""
+        """Agent-initiated display: inline preview in the transcript."""
         from . import images as img
 
         def _show() -> None:
-            with self.suspend():
-                img.display(path)
-                try:
-                    input(f"（agent 显示了 {path.name}，回车返回）")
-                except EOFError:
-                    pass
+            self.chat().write(f"[dim]🖼 {path.name}[/dim]")
+            self.chat().write(img.as_block_text(path))
 
         self.call_from_thread(_show)
 

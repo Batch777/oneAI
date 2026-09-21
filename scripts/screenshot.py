@@ -38,6 +38,17 @@ async def main() -> None:
         chat.write("[dim]  🔧 vault_search(query=学历 本科 硕士)[/dim]")
         chat.write("[dim]助手[/dim]")
         chat.write(Markdown(SAMPLE_ANSWER))
+        # inline image preview sample
+        from PIL import Image
+        from oneai.images import as_block_text
+
+        im = Image.new("RGB", (120, 60))
+        for x in range(120):
+            for y in range(60):
+                im.putpixel((x, y), (int(x * 2), 80, int(y * 4)))
+        im.save("/tmp/oneai-shot.png")
+        chat.write("[dim]🖼 oneai-shot.png[/dim]")
+        chat.write(as_block_text(Path("/tmp/oneai-shot.png"), max_cols=30))
         # completion menu open state
         box = app.query_one("#input")
         box.value = "/re"
