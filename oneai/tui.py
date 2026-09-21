@@ -86,7 +86,7 @@ def text_object_span(text: str, pos: int, scope: str, obj: str) -> tuple[int, in
     return None
 
 
-class ChatLog(RichLog):
+class ChatLog(RichLog, can_focus=False):  # no focus → no brightening on click
     """RichLog with pi-style faster wheel scrolling.
 
     Textual dispatches _on_<event> across the whole MRO, so we can't override
@@ -325,11 +325,15 @@ class OneAIApp(App):
 
     CSS = """
     /* No borders: box-drawing chars would end up in mouse-selected copies. */
-    #chat { height: 1fr; padding: 0 1; }
+    #chat { height: 1fr; padding: 0 1; background: $background; }
+    #chat:focus { background: $background; }  # never brighten on click/focus
+    #chat .option-list--option-hover { background: $background; }
     /* bottom zone blends into the transcript background — one uniform color */
     #bottom { height: auto; background: $background; }
     #completion { height: auto; max-height: 9; display: none; background: $background; }
     #completion.visible { display: block; }
+    /* completion: selection bar stays (keyboard), but no hover lighting */
+    #completion .option-list--option-hover { background: $background; }
     /* status row is permanent (blank = bottom margin; hint fills it, no layout shift) */
     #status { height: 1; padding: 0 2; color: $warning; background: $background; }
     /* mode badge: own row, centered, same background */
