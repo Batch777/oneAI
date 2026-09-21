@@ -326,18 +326,17 @@ class OneAIApp(App):
     CSS = """
     /* No borders: box-drawing chars would end up in mouse-selected copies. */
     #chat { height: 1fr; padding: 0 1; }
-    /* bottom zone: everything solid $surface — $boost is an alpha overlay and
-       composites differently across terminals; solid colors stay consistent. */
-    #bottom { height: auto; background: $surface; }
-    #completion { height: auto; max-height: 9; display: none; background: $surface; }
+    /* bottom zone blends into the transcript background — one uniform color */
+    #bottom { height: auto; background: $background; }
+    #completion { height: auto; max-height: 9; display: none; background: $background; }
     #completion.visible { display: block; }
     /* status row is permanent (blank = bottom margin; hint fills it, no layout shift) */
-    #status { height: 1; padding: 0 2; color: $warning; background: $surface; }
-    /* mode badge: own row, centered, same gray */
-    #mode { width: 1fr; height: 1; text-align: center; color: $success; text-style: bold; background: $surface; }
+    #status { height: 1; padding: 0 2; color: $warning; background: $background; }
+    /* mode badge: own row, centered, same background */
+    #mode { width: 1fr; height: 1; text-align: center; color: $success; text-style: bold; background: $background; }
     #mode.normal { color: $primary; }
-    /* rounded prompt box (pi-style) */
-    #input { width: 1fr; height: 3; border: round $surface-lighten-2; background: $surface; padding: 0 1; }
+    /* rounded prompt box (pi-style); the border alone defines it */
+    #input { width: 1fr; height: 3; border: round $surface-lighten-2; background: $background; padding: 0 1; }
     /* no focus highlight — the box looks the same focused or not */
     #input:focus { border: round $surface-lighten-2; }
     ConfirmScreen { align: center middle; }

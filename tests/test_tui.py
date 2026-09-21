@@ -64,10 +64,10 @@ class TestCompletion:
             app._refresh_completion(box.value)
             assert not app.completion_active()
 
-            # dock colors: everything solid $surface (no alpha compositing)
+            # dock colors: everything blends into the transcript background
             for sel in ("#bottom", "#completion", "#status", "#mode", "#input"):
                 bg = app.query_one(sel).styles.background
-                assert (bg.r, bg.g, bg.b) == (30, 30, 30), (sel, bg)
+                assert (bg.r, bg.g, bg.b) == (18, 18, 18), (sel, bg)
 
     def test_enter_completes_prefix_but_submits_exact(self):
         run(self._enter())
