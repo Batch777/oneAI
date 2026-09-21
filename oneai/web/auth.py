@@ -24,10 +24,16 @@ def database(cfg):
 
 
 def pair(cfg):
-    code=''.join(secrets.choice('0123456789') for _ in range(10))
-    with database(cfg) as db, db:
-        db.execute('DELETE FROM codes WHERE expires<?',(time.time(),))
+    with database(cfg) as db:
+        db.execute('BEGIN IMMEDIATE')
+        previous={r[0] for r in db.execute('SELECT hash FROM codes')}
+        while True:
+            code=''.join(secrets.choice('0123456789') for _ in range(4))
+            if digest(code) not in previous: break
+        # One short code at a time; generating another replaces the previous one.
+        db.execute('DELETE FROM codes')
         db.execute('INSERT INTO codes VALUES(?,?)',(digest(code),time.time()+600))
+        db.commit()
     return code
 
 
@@ -38,12 +44,12 @@ def login(cfg,code,name,ip):
         db.execute('DELETE FROM attempts WHERE at<?',(now-600,))
         local=db.execute('SELECT count(*) FROM attempts WHERE ip=?',(ip,)).fetchone()[0]
         total=db.execute('SELECT count(*) FROM attempts').fetchone()[0]
-        if local>=10 or total>=100:
+        if local>=5 or total>=10:
             db.rollback(); raise ValueError('too_many_attempts')
-        db.execute('INSERT INTO attempts VALUES(?,?)',(ip,now))
         code=code.replace(' ','').replace('-','') if isinstance(code,str) else ''
         row=db.execute('SELECT * FROM codes WHERE hash=? AND expires>?',(digest(code),now)).fetchone()
         if row is None:
+            db.execute('INSERT INTO attempts VALUES(?,?)',(ip,now))
             db.commit(); raise ValueError('invalid_code')
         token=secrets.token_urlsafe(32); csrf=secrets.token_urlsafe(32); sid=secrets.token_hex(12)
         db.execute('DELETE FROM codes WHERE hash=?',(row['hash'],))

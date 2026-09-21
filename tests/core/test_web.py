@@ -74,3 +74,31 @@ def test_historical_source_and_bounded_requests(client):
     assert source.status_code==200 and 'Gaussian evidence' in source.json()['text']
     assert c.get('/api/source',params={'citation':'../../outlook.env'}).status_code==400
     assert c.post('/api/commands',content=b'x'*200001,headers={'content-type':'application/json'}).status_code==413
+
+def test_four_digit_pair_replaces_old_code_and_expires(client,monkeypatch):
+    cfg,c=client
+    monkeypatch.setattr(auth.time,'time',lambda:1000)
+    old=auth.pair(cfg);new=auth.pair(cfg)
+    assert len(new)==4 and new.isascii() and new.isdigit() and old!=new
+    assert c.post('/api/login',json={'code':old}).status_code==401
+    assert c.post('/api/login',json={'code':new}).status_code==200
+    assert c.post('/api/login',json={'code':new}).status_code==401
+    expired=auth.pair(cfg)
+    monkeypatch.setattr(auth.time,'time',lambda:1601)
+    assert c.post('/api/login',json={'code':expired}).status_code==401
+
+def test_short_code_failed_attempt_budget_survives_regeneration(client):
+    cfg,c=client
+    for _ in range(5):
+        assert c.post('/api/login',json={'code':'invalid'}).status_code==401
+    code=auth.pair(cfg)
+    assert c.post('/api/login',json={'code':code}).status_code==429
+
+def test_short_code_global_failed_attempt_budget(client):
+    cfg,c=client
+    for i in range(10):
+        with pytest.raises(ValueError,match='invalid_code'):
+            auth.login(cfg,'invalid','test',str(i))
+    code=auth.pair(cfg)
+    with pytest.raises(ValueError,match='too_many_attempts'):
+        auth.login(cfg,code,'test','another-ip')
