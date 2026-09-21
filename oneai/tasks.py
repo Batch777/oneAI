@@ -28,6 +28,7 @@ class Tasks:
         CREATE TABLE IF NOT EXISTS mail_triage(
           task_id TEXT PRIMARY KEY,category TEXT NOT NULL,confidence REAL NOT NULL,
           reason TEXT NOT NULL,source TEXT NOT NULL,filtered INTEGER NOT NULL,version TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS reply_requests(task_id TEXT PRIMARY KEY,revision INTEGER NOT NULL);
         CREATE TABLE IF NOT EXISTS receipts(id TEXT PRIMARY KEY, payload TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS history(
           seq INTEGER PRIMARY KEY,task_id TEXT NOT NULL,event TEXT NOT NULL,
@@ -68,6 +69,19 @@ class Tasks:
                 if not isinstance(title,str) or not isinstance(body,str) or not body.strip(): raise ValueError('title and body required')
                 task_id = digest('phone:'+cid)[:24]
                 self.db.execute('INSERT INTO tasks(id,origin,title,input,updated) VALUES(?,?,?,?,?)',(task_id,'phone:'+cid,title,body,now_iso()))
+            elif action == 'generate_reply':
+                task_id=command.get('task_id');row=self.get(task_id)
+                if type(command.get('revision')) is not int or command['revision']!=row['revision']:
+                    raise ValueError('Stale revision: refresh before generating a reply')
+                if row['status'] not in ('needs_review','reviewed'):
+                    raise ValueError('Task is not reviewable')
+                if self.db.execute('SELECT 1 FROM reply_requests WHERE task_id=?',(task_id,)).fetchone():
+                    raise ValueError('Reply already generated; edit the existing draft')
+                base=row['result']
+                if row['revision']==1:base=base.split('\n\n## 回复草稿模板')[0]
+                reply='\n\n## 回复草稿\n\n您好，已收到您的来信。\n\n[请补充已核实的信息、答复和待确认问题。]\n\n谢谢。\n\n> 这是待编辑模板，未调用模型，尚未发送。\n'
+                self.db.execute("UPDATE tasks SET result=?,revision=revision+1,approved_revision=NULL,status='needs_review',updated=? WHERE id=?",(base+reply,now_iso(),task_id))
+                self.db.execute('INSERT INTO reply_requests VALUES(?,?)',(task_id,row['revision']+1))
             elif action == 'restore_mail':
                 task_id=command.get('task_id'); self.get(task_id)
                 self.db.execute("UPDATE mail_triage SET filtered=0,source='user',reason='用户恢复到任务列表' WHERE task_id=?",(task_id,))

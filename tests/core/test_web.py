@@ -119,3 +119,42 @@ def test_filtered_mail_visible_restorable_and_counts_match(client):
     assert c.get('/api/tasks').json()['total']==1
     assert c.get('/api/tasks',params={'mail_view':'filtered'}).json()['total']==0
     assert c.get('/api/mail/alerts').json()=={'items':[]}
+
+
+def test_reply_generation_is_explicit_and_revision_safe(client):
+    cfg,c=client;login(cfg,c)
+    tid=c.post('/api/commands',json={'id':'reply-create','action':'create','title':'回复测试','body':'请确认研究安排'}).json()['task_id']
+    tick(cfg)
+    before=c.get('/api/tasks/'+tid).json()
+    assert not before['reply_generated'] and '## 回复草稿模板' not in before['result']
+    command={'id':'reply-generate','action':'generate_reply','task_id':tid,'revision':before['revision']}
+    assert c.post('/api/commands',json=command).status_code==200
+    assert c.post('/api/commands',json=command).status_code==200
+    after=c.get('/api/tasks/'+tid).json()
+    assert after['reply_generated'] and after['result'].count('## 回复草稿')==1
+    assert after['revision']==before['revision']+1
+    assert c.post('/api/commands',json={**command,'id':'stale-device'}).status_code==409
+    assert c.post('/api/commands',json={**command,'id':'duplicate','revision':after['revision']}).status_code==409
+    assert 'identity' in after['context_view']
+
+
+def test_push_api_boundaries_and_logout(client):
+    from oneai import push
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.hazmat.primitives import serialization
+    cfg,c=client
+    assert c.get('/api/push/config').status_code==401
+    login(cfg,c)
+    assert c.post('/api/push/test',json={}).status_code==409
+    push.initialize(cfg)
+    point=ec.generate_private_key(ec.SECP256R1()).public_key().public_bytes(serialization.Encoding.X962,serialization.PublicFormat.UncompressedPoint)
+    sub={'endpoint':'https://fcm.googleapis.com/fcm/send/test','keys':{'p256dh':push.encode(point),'auth':push.encode(b'a'*16)}}
+    assert c.post('/api/push/subscribe',json=sub,headers={'x-oneai-csrf':'wrong'}).status_code==403
+    assert c.post('/api/push/subscribe',json=sub).status_code==200
+    assert c.get('/api/push/config').json()['subscribed']
+    assert c.post('/api/push/test',json={}).status_code==200
+    assert c.post('/api/push/test',json={}).status_code==429
+    assert c.post('/api/logout',json={}).status_code==200
+    with push.store(cfg) as db:
+        assert db.execute('SELECT count(*) FROM push_subscriptions').fetchone()[0]==0
+        assert db.execute('SELECT status FROM push_outbox').fetchone()[0]=='cancelled'

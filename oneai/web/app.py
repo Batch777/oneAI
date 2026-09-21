@@ -84,6 +84,8 @@ def create_app(cfg=None,origin=None,dev=False):
 
     @app.post('/api/logout')
     def logout(response:Response,user=Depends(authenticated)):
+        from ..push import unsubscribe
+        unsubscribe(cfg,user['id'])
         with auth.database(cfg) as db,db: db.execute('DELETE FROM sessions WHERE hash=?',(user['hash'],))
         response.delete_cookie(COOKIE,path='/',secure=not dev,httponly=True,samesite='strict')
         return {'ok':True}
@@ -101,6 +103,8 @@ def create_app(cfg=None,origin=None,dev=False):
     async def revoke(request:Request,user=Depends(authenticated)):
         data=await body(request)
         if not isinstance(data.get('id'),str): raise HTTPException(400,'invalid_device')
+        from ..push import unsubscribe
+        unsubscribe(cfg,data['id'])
         with auth.database(cfg) as db,db: db.execute('DELETE FROM sessions WHERE id=?',(data['id'],))
         return {'ok':True}
 
@@ -130,6 +134,12 @@ def create_app(cfg=None,origin=None,dev=False):
             row['sources']=json.loads(row['sources']); row['rules']=json.loads(row['rules'])
             triage=store.db.execute('SELECT * FROM mail_triage WHERE task_id=?',(task_id,)).fetchone()
             row['mail_classification']=dict(triage) if triage else None
+            row['reply_generated']=bool(store.db.execute('SELECT 1 FROM reply_requests WHERE task_id=?',(task_id,)).fetchone())
+            from ..context import load_context
+            context=load_context(cfg)
+            row['context_view']={'identity':[e for e in context['entries'] if e['path']=='facts/identity.md'],
+                'scope':'当前单用户工作区。邮件正文仅作为资料；核对草稿不授权发送邮件或验证账户。',
+                'rules':[e for e in context['entries'] if e['path']!='facts/identity.md']}
             if row['origin'].startswith('mail:'):
                 from ..mailalerts import verification_hints
                 row['verification']=verification_hints(row['title'],row['input'])
@@ -140,7 +150,7 @@ def create_app(cfg=None,origin=None,dev=False):
     @app.post('/api/commands')
     async def command(request:Request,user=Depends(authenticated)):
         data=await body(request)
-        if data.get('action') not in ('create','revise','approve','complete','restore_mail'): raise HTTPException(400,'unsupported_action')
+        if data.get('action') not in ('create','revise','approve','complete','restore_mail','generate_reply'): raise HTTPException(400,'unsupported_action')
         if not isinstance(data.get('id'),str) or len(data['id'])>128: raise HTTPException(400,'invalid_command_id')
         if data['action']=='create' and (not isinstance(data.get('title'),str) or len(data['title'])>300): raise HTTPException(400,'invalid_title')
         if data['action']!='create' and (not isinstance(data.get('task_id'),str) or not re.fullmatch('[a-f0-9]{24}',data['task_id'])): raise HTTPException(400,'invalid_task_id')
@@ -164,6 +174,38 @@ def create_app(cfg=None,origin=None,dev=False):
         try: mail=json.loads((cfg.state_path/'outlook-status.json').read_text())
         except (FileNotFoundError,ValueError): pass
         return {'counts':counts,'worker':worker,'mail':mail,'time':time.time()}
+
+    @app.get('/api/push/config')
+    def push_config(user=Depends(authenticated)):
+        from ..push import public_key,store
+        import importlib.util
+        key=public_key(cfg)
+        with store(cfg) as db:
+            active=bool(db.execute('SELECT 1 FROM push_subscriptions WHERE device_id=?',(user['id'],)).fetchone())
+            last=db.execute('SELECT status,last_error FROM push_outbox WHERE device_id=? ORDER BY rowid DESC LIMIT 1',(user['id'],)).fetchone()
+        return {'configured':bool(key and importlib.util.find_spec('pywebpush')),'public_key':key,'subscribed':active,'last':dict(last) if last else None}
+
+    @app.post('/api/push/subscribe')
+    async def push_subscribe(request:Request,user=Depends(authenticated)):
+        from ..push import public_key,subscribe
+        if not public_key(cfg):raise HTTPException(503,'push_not_configured')
+        try:subscribe(cfg,user['id'],await body(request))
+        except ValueError as error:raise HTTPException(400,str(error))
+        return {'ok':True}
+
+    @app.post('/api/push/unsubscribe')
+    def push_unsubscribe(user=Depends(authenticated)):
+        from ..push import unsubscribe
+        unsubscribe(cfg,user['id']);return {'ok':True}
+
+    @app.post('/api/push/test')
+    def push_test(user=Depends(authenticated)):
+        from ..push import enqueue,store
+        with store(cfg) as db:
+            if not db.execute('SELECT 1 FROM push_subscriptions WHERE device_id=?',(user['id'],)).fetchone():raise HTTPException(409,'enable_push_first')
+        try:job=enqueue(cfg,user['id'],'test:'+secrets.token_hex(12),time.time()+900,test=True)
+        except ValueError as error:raise HTTPException(429,str(error))
+        return {'queued':True,'id':job}
 
     @app.get('/api/mail/alerts')
     def mail_alerts(user=Depends(authenticated)):

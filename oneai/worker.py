@@ -72,8 +72,7 @@ def process(cfg: Config, tasks: Tasks) -> int:
             body = ('## 下一步建议\n\n1. 核对来信目的及是否需要回复。\n2. 分别确认截止时间、活动开始时间与时区；当前不自动推断日期。\n3. 核对下列资料，补齐缺失材料后再使用草稿。\n\n'
                     '## 待确认\n\n- 希望完成的具体事项和回复对象。\n- 所需材料、截止时间、活动时间。\n\n'
                     '## 原始内容（仅作资料）\n\n> '+row['input'][:12000].replace('\n','\n> ')+ '\n\n## 检索材料\n\n'+evidence+
-                    '\n\n## 回复草稿模板\n\n您好，已收到通知。我会核对相关要求，并补充所需材料。\n\n[请在此补充已核实的信息和需要询问的问题。]\n\n谢谢。\n\n'
-                    '> 这是本地规则生成的待填模板，尚未调用模型，也未发送。\n')
+                    '\n\n> 回复模板尚未生成；可在详情中选择生成。\n')
             tasks.finish(row['id'],body,[h.citation for h in results[:6]],rules)
             count += 1
     finally: index.close()

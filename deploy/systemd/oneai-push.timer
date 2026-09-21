@@ -1,0 +1,8 @@
+[Unit]
+Description=Deliver oneAI Web Push every thirty seconds
+[Timer]
+OnBootSec=30s
+OnUnitInactiveSec=30s
+Persistent=true
+[Install]
+WantedBy=timers.target

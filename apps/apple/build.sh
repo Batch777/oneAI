@@ -13,9 +13,9 @@ mkdir -p "$out"
 exe="$out"
 plist="$out"
 if [ "$platform" = mac ]; then exe="$out/Contents/MacOS"; plist="$out/Contents"; mkdir -p "$exe"; fi
-args=()
-if [ "$mode" = debug ]; then args+=(-D DEBUG); fi
-xcrun --sdk "$sdk" swiftc -module-cache-path state/build/module-cache -parse-as-library -target "$target" -sdk "$(xcrun --sdk "$sdk" --show-sdk-path)" "${args[@]}" apps/apple/OneAI.swift -o "$exe/oneAI"
+set --
+if [ "$mode" = debug ]; then set -- -D DEBUG; fi
+xcrun --sdk "$sdk" swiftc -module-cache-path state/build/module-cache -parse-as-library -target "$target" -sdk "$(xcrun --sdk "$sdk" --show-sdk-path)" "$@" apps/apple/OneAI.swift -o "$exe/oneAI"
 python3 - "$plist" "$bundle" "$platform" "$mode" <<'PY'
 import plistlib,sys
 from pathlib import Path
