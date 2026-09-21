@@ -331,8 +331,6 @@ class OneAIApp(App):
     #bottom { height: auto; background: $surface; }
     #completion { height: auto; max-height: 9; display: none; background: $surface; }
     #completion.visible { display: block; }
-    /* no selection highlight in the completion menu (per user preference) */
-    #completion .option-list--option-highlighted { background: $surface; }
     /* status row is permanent (blank = bottom margin; hint fills it, no layout shift) */
     #status { height: 1; padding: 0 2; color: $warning; background: $surface; }
     /* mode badge: own row, centered, same gray */
