@@ -48,12 +48,26 @@ class TestCompletion:
 
             app.move_completion(1)
             app.apply_completion()
-            assert box.value in ("/reload", "/reindex")
+            assert box.value in ("/reload", "/reindex", "/resume")
+
+            # ctrl+n / ctrl+p navigate the menu too
+            box.value = "/re"
+            app._refresh_completion("/re")
+            ol.highlighted = 0
+            await pilot.press("ctrl+n")
+            assert ol.highlighted == 1
+            await pilot.press("ctrl+p")
+            assert ol.highlighted == 0
 
             # args typed → menu hides
             box.value = "/draft 写"
             app._refresh_completion(box.value)
             assert not app.completion_active()
+
+            # dock colors: everything solid $surface (no alpha compositing)
+            for sel in ("#bottom", "#completion", "#status", "#mode", "#input"):
+                bg = app.query_one(sel).styles.background
+                assert (bg.r, bg.g, bg.b) == (30, 30, 30), (sel, bg)
 
     def test_enter_completes_prefix_but_submits_exact(self):
         run(self._enter())

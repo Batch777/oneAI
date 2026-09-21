@@ -145,6 +145,8 @@ class CommandInput(Input):
         Binding("ctrl+d", "ctrl_d", show=False),
         Binding("ctrl+c", "clear_input", show=False),
         Binding("escape", "esc_normal", show=False),
+        Binding("ctrl+n", "comp_down", show=False, priority=True),  # completion next
+        Binding("ctrl+p", "comp_up", show=False, priority=True),    # completion previous
     ]
 
     def action_esc_normal(self) -> None:
@@ -319,20 +321,23 @@ class CommandInput(Input):
 
 
 class OneAIApp(App):
+    ENABLE_COMMAND_PALETTE = False  # its ctrl+p binding would shadow ours
+
     CSS = """
     /* No borders: box-drawing chars would end up in mouse-selected copies. */
     #chat { height: 1fr; padding: 0 1; }
-    /* bottom zone is one uniform panel matching the input box gray */
-    #bottom { height: auto; background: $boost; }
-    #completion { height: auto; max-height: 9; display: none; background: $boost; }
+    /* bottom zone: everything solid $surface — $boost is an alpha overlay and
+       composites differently across terminals; solid colors stay consistent. */
+    #bottom { height: auto; background: $surface; }
+    #completion { height: auto; max-height: 9; display: none; background: $surface; }
     #completion.visible { display: block; }
     /* status row is permanent (blank = bottom margin; hint fills it, no layout shift) */
-    #status { height: 1; padding: 0 2; color: $warning; background: $boost; }
+    #status { height: 1; padding: 0 2; color: $warning; background: $surface; }
     /* mode badge: own row, centered, same gray */
-    #mode { width: 1fr; height: 1; text-align: center; color: $success; text-style: bold; background: $boost; }
+    #mode { width: 1fr; height: 1; text-align: center; color: $success; text-style: bold; background: $surface; }
     #mode.normal { color: $primary; }
     /* rounded prompt box (pi-style) */
-    #input { width: 1fr; height: 3; border: round $secondary; background: $boost; padding: 0 1; }
+    #input { width: 1fr; height: 3; border: round $secondary; background: $surface; padding: 0 1; }
     #input:focus { border: round $primary; }
     ConfirmScreen { align: center middle; }
     ConfirmScreen Label { width: 60; padding: 1 2; background: $surface; }
