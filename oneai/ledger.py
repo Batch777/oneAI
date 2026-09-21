@@ -1,8 +1,9 @@
-"""Idempotency ledger: guarantees each resource (email, task) is handled once.
+"""Experimental unique-resource registry, not an exactly-once executor.
 
-State machine for emails: seen -> drafted -> approved -> sent.
-A resource_id is claimed atomically; a crash mid-processing leaves it claimed,
-and `recover_stale()` lets the daemon retry instead of silently skipping.
+Not wired to a background worker. A claim records an ID; it does not prove a
+remote action completed. recover_stale only changes labels and does not make
+an existing ID claimable. Production retry/lease/outbox semantics are specified
+in docs/SPEC-NEXT.md and must be implemented before enabling mail execution.
 """
 from __future__ import annotations
 

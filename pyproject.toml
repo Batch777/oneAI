@@ -9,15 +9,16 @@ description = "Local-first AI personal assistant: markdown knowledge base, Outlo
 requires-python = ">=3.11"
 dependencies = [
     "openai>=1.40",
-    "msal>=1.30",
     "python-frontmatter>=1.1",
-    "watchdog>=4.0",
-    "textual>=0.80",
-    "Pillow>=10.0",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+outlook = ["msal>=1.30"]
+legacy = ["textual>=0.80", "Pillow>=10.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/core"]
 
 [project.scripts]
 oneai = "oneai.cli:main"

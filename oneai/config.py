@@ -27,6 +27,10 @@ class Config:
     deepseek_base_url: str = "https://api.deepseek.com"
     model: str = "deepseek-flash"
 
+    def __post_init__(self) -> None:
+        self.vault_path = self.vault_path.expanduser().resolve()
+        self.state_path = self.state_path.expanduser().resolve()
+
     @classmethod
     def load(cls) -> "Config":
         return cls(

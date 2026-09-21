@@ -1,0 +1,19 @@
+[Unit]
+Description=oneAI read-only Outlook delta ingestion
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=oneai
+Group=oneai
+WorkingDirectory=/opt/oneai
+EnvironmentFile=/etc/oneai/outlook.env
+ExecStart=/opt/oneai/.venv/bin/python -m connectors.outlook.connector sync
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/oneai
+TimeoutStartSec=15min

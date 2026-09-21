@@ -1,4 +1,4 @@
-"""Unit tests: ledger (once-only guarantee) + events log."""
+"""Unit tests: experimental ledger (unique registration) + events log."""
 from __future__ import annotations
 
 from oneai.events import EventLog
@@ -9,7 +9,7 @@ class TestLedger:
     def test_claim_only_once(self, tmp_path):
         l = Ledger(tmp_path / "l.sqlite")
         assert l.claim("email", "msg-1") is True
-        assert l.claim("email", "msg-1") is False  # never processed twice
+        assert l.claim("email", "msg-1") is False  # unique registration only, not remote exactly-once
         assert l.claim("email", "msg-2") is True
 
     def test_kinds_are_independent(self, tmp_path):

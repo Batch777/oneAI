@@ -1,4 +1,4 @@
-"""Agent helpers: draft pipeline, identity context. (Q&A lives in runtime.py.)"""
+"""Agent helpers: draft pipeline, identity context. (Legacy Q&A lives in legacy/runtime.py.)"""
 from __future__ import annotations
 
 from datetime import datetime
@@ -9,6 +9,7 @@ from .events import EventLog
 from .indexer import Index, SearchResult
 from .llm import LLM
 from .vault import new_id, now_iso, write_note
+from .context import context_text, load_context
 
 
 def build_context(results: list[SearchResult]) -> str:
@@ -39,19 +40,45 @@ def draft_manuscript(cfg: Config, instruction: str, k: int = 6) -> Path:
     """Generate a manuscript from vault context and save it to inbox/drafts/.
 
     Called ONLY on explicit user action (TUI 'AI Draft' button / CLI),
-    never automatically. The draft has status 'drafted' until the user edits
-    it and sets 'approved'.
+    never automatically. This creates a local artifact, not send authorization.
     """
     index = Index(cfg.index_db)
-    results = index.search(instruction, k=k)
-    index.close()
+    try:
+        index.sync(cfg.vault_path)
+        results = index.search(instruction, k=k)
+    finally:
+        index.close()
     context = build_context(results) if results else "(no vault context)"
 
     body = LLM(cfg).chat(
-        DRAFT_SYSTEM + _identity_context(cfg),
+        DRAFT_SYSTEM + "\n\n" + context_text(cfg),
         f"Context:\n{context}\n\nInstruction: {instruction}",
     )
 
+    return save_manuscript(cfg, instruction[:40], body, instruction=instruction,
+                           sources=[{"path": r.path, "version": r.source_version,
+                                     "lines": f"{r.start_line}-{r.end_line}"} for r in results])
+
+
+def save_manuscript(cfg: Config, title: str, body: str, *, instruction: str = "",
+                    sources: list[dict] | None = None) -> Path:
+    """Save the active agent's exact text. No second model call or external send."""
+    from .vault import select_lines
+    if not isinstance(title, str) or not isinstance(body, str) or not body.strip():
+        raise ValueError("A title and non-empty draft body are required")
+    sources = [] if sources is None else sources
+    if not isinstance(sources, list):
+        raise ValueError("sources must be a list")
+    index = Index(cfg.index_db)
+    try:
+        for source in sources:
+            if not isinstance(source, dict) or not all(isinstance(source.get(k), str)
+                                                     for k in ("path", "version", "lines")):
+                raise ValueError("Each source needs path, version and lines")
+            raw = index.read_version(cfg.vault_path, source["path"], source["version"])
+            select_lines(raw, source["lines"])
+    finally:
+        index.close()
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
     rel = f"inbox/drafts/{ts}-{new_id()}.md"
     path = write_note(
@@ -59,11 +86,13 @@ def draft_manuscript(cfg: Config, instruction: str, k: int = 6) -> Path:
         rel,
         {
             "id": new_id(),
-            "title": instruction[:40],
-            "status": "drafted",  # drafted -> approved -> sent
+            "title": title,
+            "status": "drafted",  # never interpreted as authorization to send
             "instruction": instruction,
             "created": now_iso(),
-            "sources": [r.citation for r in results],
+            "sources": sources,
+            "context_versions_at_save": [{"path": e["path"], "version": e["version"]}
+                                 for e in load_context(cfg)["entries"]],
         },
         body + "\n",
     )

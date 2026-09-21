@@ -77,7 +77,7 @@ class TestIndex:
         (r,) = index.search("手冲")
         assert r.path == "facts/coffee.md"
         assert r.start_line >= 1 and r.end_line >= r.start_line
-        assert r.citation.startswith("facts/coffee.md#L")
+        assert r.citation.startswith("facts/coffee.md@") and "#L" in r.citation
         assert "手冲" in r.text
 
     def test_cjk_fallback_matches_two_char_words(self, vault, index):

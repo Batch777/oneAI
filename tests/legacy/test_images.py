@@ -6,7 +6,7 @@ import base64
 import pytest
 from PIL import Image
 
-from oneai.images import (
+from oneai.legacy.images import (
     calculate_cell_size,
     encode_kitty,
     fallback_text,

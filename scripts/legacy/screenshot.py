@@ -1,6 +1,6 @@
 """Render the TUI to a PNG screenshot without a real terminal.
 
-    .venv/bin/python scripts/screenshot.py [out.png]
+    .venv/bin/python scripts/legacy/screenshot.py [out.png]
 
 Uses Textual's headless mode + SVG export (converted via qlmanage on macOS).
 Chat content is fake sample data — no API calls.
@@ -15,7 +15,7 @@ from pathlib import Path
 
 from rich.markdown import Markdown
 
-from oneai.tui import OneAIApp
+from oneai.legacy.tui import OneAIApp
 
 SAMPLE_ANSWER = """根据现有记录：
 
@@ -40,7 +40,7 @@ async def main() -> None:
         chat.write(Markdown(SAMPLE_ANSWER))
         # inline image preview sample
         from PIL import Image
-        from oneai.images import as_block_text
+        from oneai.legacy.images import as_block_text
 
         im = Image.new("RGB", (120, 60))
         for x in range(120):

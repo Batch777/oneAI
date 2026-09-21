@@ -5,7 +5,7 @@ import asyncio
 
 from textual.widgets import Input, Label
 
-from oneai.tui import CommandInput, OneAIApp
+from oneai.legacy.tui import CommandInput, OneAIApp
 
 
 def run(coro):

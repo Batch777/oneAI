@@ -1,13 +1,7 @@
-# OneAI iOS App (planned)
+# 手机入口
 
-Thin SwiftUI client over the shared vault.
+当前可通过 iCloud Drive 编辑同步的 vault 文件；尚未实现原生 iOS App、手机任务消费或审批服务。
 
-- Vault syncs via **iCloud Drive** (`~/Library/Mobile Documents/com~apple~CloudDocs/oneAI/vault`),
-  visible in the Files app — no custom sync backend needed for v1.
-- App features (v1):
-  - Quick capture → writes `inbox/<timestamp>.md`
-  - Task list → reads/writes `inbox/` notes with `status:` frontmatter
-  - Draft review → approve/edit `inbox/drafts/*.md` before sending
-- Later: CloudKit for structured sync, Apple Notes share extension.
+下一版采用手机网页 / 快捷指令直连常在线服务，让 Mac 离线时仍可发任务、查看进度和编辑草稿。iCloud 作为资料入口与同步副本，不承担数据库锁或执行队列。
 
-The desktop daemon picks up anything dropped into `inbox/` automatically.
+详见 `docs/SPEC-NEXT.md`。`oneai watch` 只同步 Markdown 索引，不会自动处理 inbox 任务或发送 approved 草稿。

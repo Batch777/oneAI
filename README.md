@@ -1,80 +1,60 @@
 # oneAI
 
-独立的 AI 个人助理产品：本地优先、数据即 Markdown、回答可溯源、起草需审批。
+个人资料与任务助手。当前可用：Markdown 检索、版本化引用、持久规则和本地草稿。独立云端任务服务与手机界面见 [下一版 spec](docs/SPEC-NEXT.md)，尚未部署。
 
-## Quick start
-
-```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e .
-export DEEPSEEK_API_KEY=sk-...   # deepseek-flash（OpenAI 兼容接口）
-oneai init                       # 在 iCloud Drive 创建 vault
-oneai tui                        # 启动主界面
-```
-
-## 主界面：pi + oneAI 扩展
-
-TUI 直接使用 [pi](https://pi.dev)（内建：多行编辑器、拖拽选择复制、Kitty 内联图片、会话树、主题），oneAI 以扩展形式挂载：
+## 当前入口
 
 ```bash
-oneai              # 直接启动 pi（自动挂载 oneAI 扩展，默认 deepseek-flash）
-oneai tui          # 同上
-oneai tui-legacy   # 实验性 Textual TUI（参考实现）
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e '.[dev]'
+oneai init
+oneai                         # 显式加载本仓库扩展，暂用 pi 交互
 ```
 
-- 直接对话提问 —— agent 自动调用 `vault_search` / `vault_read`，回答附 `[[path#Lx-Ly]]` 引用
-- `/draft <指令>` — 起草手稿（对话中触发 draft_create 会弹窗确认）
-- `/inbox` `/reindex` — 收件箱 / 重建索引
-- 键位：pi 默认（Ctrl+C 清空、Ctrl+D 空输入退出、Esc 中断）+ vim 模式（Esc / Ctrl+J 切 NORMAL）
+pi 为可选交互依赖，目前已用本机 0.86.1 验证。启动器传递当前 Python 环境，不再硬编码用户路径；旧的全局 oneAI 扩展软链不再必需。外部 pi 单独启动时，需正确配置 `ONEAI_PYTHON` 或 `ONEAI_CLI`。
 
-安装状态：
-- 扩展：`~/.pi/agent/extensions/oneai` → 软链到 `extension/oneai/`
-- vim：`pi install npm:pi-vimmode`
-- 配置：`~/.pi/agent/settings.json`（deepseek-flash 默认模型 + vim escape 别名）
-
-## 自研 TUI（实验性，保留参考）
-
-`oneai tui` —— 基于 Textual 的独立实现（vim 子集、拖拽复制、半块图像渲染），
-用于验证交互设计；日常使用以 pi 为准。
-
-## Python CLI（核心接口，独立可用）
-
-往 `~/.oneai/extensions/*.py`（全局）或 `.oneai/extensions/*.py`（项目级）放 Python 文件即可：
-
-```python
-from oneai.runtime import Command, Tool
-
-def setup(rt):
-    # 注册斜杠命令（出现在 /help 和 Tab 补全中）
-    rt.register_command(Command("motivate", "来一句加油", lambda a: print("加油！")))
-
-    # 注册 LLM 工具（confirm=True 启用确认门）
-    rt.register_tool(Tool("my_tool", "描述", {"type": "object", "properties": {}},
-                          func=lambda: "ok", confirm=True))
-
-    # 钩子：tool_call（可 block）、before_agent_start、tool_result、agent_end
-    rt.on("tool_call", lambda name, arguments: {"block": True, "reason": "no"}
-          if name == "dangerous" else None)
-```
-
-`/reload` 热加载。示例见 `examples/extensions/`。
-
-## CLI（核心接口，独立可用）
+## 数据与起草
 
 ```bash
-oneai search "关键词" [--json]     # 本地检索，不耗 API
-oneai read facts/education.md [--lines 8-16]
-oneai inbox                       # 列出捕获与手稿
-oneai ask "问题"                   # 单轮问答（走 agent 工具循环）
-oneai draft "指令" [--json]        # 独立起草管线（手动触发）
-oneai status                      # ledger 与事件日志
+oneai search '关键词' --json       # 检索前增量同步，包含编辑和删除
+oneai read facts/education.md --lines 8-16
+oneai read facts/education.md --version <source_version> --lines 8-16
+oneai watch                       # 持续对账；不依赖 pi 窗口，进程需自行保持运行
+oneai watch --once
+oneai context                     # 查看每轮加载的 identity 与 rules/*.md
+oneai index                       # 事务内完整重建
 ```
 
-## 可选：pi 扩展桥
+- `/draft <要求>` 在当前 pi 会话生成正文，`draft_create` 原样保存，不再另起一个模型请求。
+- `oneai draft '<要求>'` 是明确的独立单轮 CLI：需 `DEEPSEEK_API_KEY`，读取同一套规则和最新资料，不具有 pi 当前对话。
+- `oneai draft-save` 从标准输入接受 `{ "title": "标题", "body": "正文", "sources": [] }`，不调用模型。
+- 来源格式为 `{ "path": "facts/a.md", "version": "<hash>", "lines": "1-3" }`，保存前验证版本与行范围。
+- `vault/rules/*.md` 为用户维护的规则，每轮重新加载；这保证上下文注入，不承诺模型永不违反规则。
+- 保存本地草稿不要求额外弹窗。当前没有发送/提交能力，修改 `status: approved` 不会执行发送。
 
-`extension/oneai/` 可把 vault 工具挂进 pi（`ln -s` 到 `~/.pi/agent/extensions/`）。
-已非主路径，仅作兼容保留。
+引用采用 `[[path@version#Lx-Ly]]`。历史原文保存到 `state/sources.sqlite`，索引是可重建的 `state/index.sqlite`；前者必须备份。删除当前笔记会移除搜索结果，但不会抹去已保存的历史证据。
+
+## 测试与隔离
+
+```bash
+python scripts/check.py                 # Python 主路径 + Node 扩展测试
+python -m pytest                       # 默认只收集 tests/core
+pip install -e '.[legacy]'
+python -m pytest tests/legacy           # 显式运行已归档测试，部分依赖 macOS 剪贴板
+oneai tui-legacy                        # 显式启用旧 Textual 界面
+oneai ask-legacy '问题'                 # 已归档的 Python agent
+```
+
+旧 UI、图片渲染、滚轮调试和 Python Runtime 位于 `oneai/legacy/`，不会被主路径导入；说明见 [legacy](oneai/legacy/README.md)。原 `ask` 和 `wheel-debug` 命令改为明确的 `*-legacy` 名称。
+
+Outlook 已有独立的只读授权与可续传 delta 收信入口；安装 `.[outlook]` 后按 [部署说明](docs/OUTLOOK-DEPLOYMENT.md) 操作。尚未完成真实邮箱授权和云部署，待处理事件也尚未接入草稿执行器。ledger 仍为实验骨架。
+
+本地论文实验见 `scripts/paper_pilot.py`（需 pypdf）、`scripts/paper_docling_pilot.py` 和 `scripts/paper_embedding_pilot.py`；原文与输出留在本机，尚未接入主检索。
 
 ## 文档
 
-`docs/ARCHITECTURE.md` — 设计原则、目录结构、环境变量一览。
+- [当前实现架构](docs/ARCHITECTURE.md)
+- [下一版产品与服务 spec](docs/SPEC-NEXT.md)
+- [论文索引与长期记忆选型研究](docs/PAPER-MEMORY-RESEARCH.md)
+- [改动前的设计评审](docs/REVIEW-2026-09-21.md)

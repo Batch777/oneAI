@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from oneai.runtime import Command, Runtime, Tool
+from oneai.legacy.runtime import Command, Runtime, Tool
 
 
 class FakeToolCall:
@@ -171,7 +171,7 @@ class TestExtensionSystem:
         ext_dir = tmp_path / ".oneai" / "extensions"
         ext_dir.mkdir(parents=True)
         (ext_dir / "demo.py").write_text(
-            "from oneai.runtime import Command\n"
+            "from oneai.legacy.runtime import Command\n"
             "def setup(rt):\n"
             "    rt.register_command(Command('demo', '演示', lambda a: None))\n"
             "    rt.on('before_agent_start', lambda: '扩展注入的提示')\n"

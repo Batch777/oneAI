@@ -6,7 +6,7 @@ import asyncio
 from textual.events import MouseScrollUp
 from textual.widgets import Input, Label, OptionList
 
-from oneai.tui import OneAIApp, WHEEL_SCROLL_LINES
+from oneai.legacy.tui import OneAIApp, WHEEL_SCROLL_LINES
 
 
 def run(coro):

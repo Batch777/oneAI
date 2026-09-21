@@ -1,5 +1,5 @@
 """Demo extension: registers a /motivate command and a tool_call hook."""
-from oneai.runtime import Command
+from oneai.legacy.runtime import Command
 
 
 def setup(rt):

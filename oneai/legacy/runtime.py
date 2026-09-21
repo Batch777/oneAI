@@ -22,12 +22,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from .agent import _identity_context
-from .config import Config
-from .events import EventLog
-from .indexer import Index
-from .llm import LLM
-from .vault import new_id, now_iso, write_note
+from ..agent import _identity_context
+from ..config import Config
+from ..events import EventLog
+from ..indexer import Index
+from ..llm import LLM
+from ..vault import new_id, now_iso, write_note
 
 ConfirmFn = Callable[[str, str], bool]  # (title, message) -> approved
 
@@ -330,9 +330,9 @@ class Runtime:
                     result = f"已被拦截: {blocked.get('reason', '')}"
                 elif tool is None:
                     result = f"未知工具: {name}"
-                elif tool.confirm and self.confirm_cb and not self.confirm_cb(
+                elif tool.confirm and (self.confirm_cb is None or not self.confirm_cb(
                     f"确认执行 {name}", json.dumps(args, ensure_ascii=False)[:400]
-                ):
+                )):
                     result = "用户拒绝了本次调用"
                     on_event and on_event("tool_denied", {"name": name})
                 else:

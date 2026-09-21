@@ -23,7 +23,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Input, Label, OptionList, RichLog
 from textual.widgets.option_list import Option
 
-from .config import Config
+from ..config import Config
 from .runtime import Command, Runtime
 
 WHEEL_SCROLL_LINES = 6   # pi: 5 for trackpad; slightly faster per request
@@ -698,7 +698,7 @@ class OneAIApp(App):
             self.chat().write("[dim]（空）[/dim]")
 
     def _ui_reindex(self, _arg: str = "") -> None:
-        from .indexer import Index
+        from ..indexer import Index
 
         index = Index(self.cfg.index_db)
         n = index.rebuild(self.cfg.vault_path)

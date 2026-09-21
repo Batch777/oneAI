@@ -1,0 +1,11 @@
+[Unit]
+Description=Poll personal Outlook every two minutes
+
+[Timer]
+OnBootSec=45s
+OnUnitInactiveSec=2min
+RandomizedDelaySec=15s
+Persistent=true
+
+[Install]
+WantedBy=timers.target
