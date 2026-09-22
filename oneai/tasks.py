@@ -36,6 +36,7 @@ class Tasks:
         CREATE INDEX IF NOT EXISTS tasks_updated ON tasks(updated DESC,id DESC);
         CREATE INDEX IF NOT EXISTS mail_triage_filtered ON mail_triage(filtered,task_id);
         CREATE TABLE IF NOT EXISTS reply_requests(task_id TEXT PRIMARY KEY,revision INTEGER NOT NULL);
+        CREATE TABLE IF NOT EXISTS mail_triage_evidence(task_id TEXT PRIMARY KEY,payload TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS receipts(id TEXT PRIMARY KEY, payload TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS history(
           seq INTEGER PRIMARY KEY,task_id TEXT NOT NULL,event TEXT NOT NULL,
@@ -107,6 +108,8 @@ class Tasks:
                 else:
                     self.db.execute("UPDATE tasks SET status='completed',updated=? WHERE id=?",(now_iso(),task_id))
             else: raise ValueError('Unsupported action; no send or shell action exists')
+            if action in ('generate_reply','revise','approve','complete'):
+                self.db.execute("UPDATE mail_triage SET filtered=0 WHERE task_id=?",(task_id,))
             self.db.execute('INSERT INTO receipts VALUES(?,?)',(cid,payload))
             self.db.execute('INSERT INTO history(task_id,event,detail,created) VALUES(?,?,?,?)',(task_id,action,payload,now_iso()))
 

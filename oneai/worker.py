@@ -10,7 +10,6 @@ from .config import Config
 from .context import load_context
 from .indexer import Index
 from .tasks import Tasks
-from .mailtriage import classify_pending
 from .vault import atomic_write, resolve_note
 
 
@@ -88,7 +87,8 @@ def tick(cfg: Config) -> dict:
     tasks = Tasks(cfg.state_path/'tasks.sqlite')
     try:
         counts = {'mail':ingest_mail(cfg,tasks),'commands':ingest_commands(cfg,tasks)}
-        counts['classified']=classify_pending(tasks)
+        # Model classification runs in its own service; task preparation never waits for it.
+        counts['classified']=0
         counts['prepared']=process(cfg,tasks)
         tasks.export(cfg.vault_path)
         atomic_write(cfg.state_path/'worker-status.json',json.dumps({'at':time.time(),'counts':counts})+'\n')

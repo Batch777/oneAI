@@ -5,7 +5,7 @@ import math
 import re
 from dataclasses import asdict, dataclass
 
-VERSION='mail-triage-v1'
+VERSION='mail-triage-jev-v2'
 CATEGORIES={'verification','promotion','action','notification','uncertain'}
 
 @dataclass
@@ -16,6 +16,7 @@ class Decision:
     source: str
     filtered: bool=False
     version: str=VERSION
+    evidence: dict | None=None
 
 
 def classify(title,body,model=None):
@@ -25,17 +26,19 @@ def classify(title,body,model=None):
     protected=bool(re.search(r'异常登录|异地登录|安全警报|未经授权|可疑|付款|账单|面试|录用|截止|材料补交|unusual.sign.in|security.alert|unauthorized|invoice|payment.due|interview|deadline',text,re.I))
     if protected:
         return Decision('action',.9,'包含安全警报、账单或截止等重要事项信号，保留核对。','rule')
-    from .mailalerts import verification_hints
-    hints=verification_hints(title,body)
-    otp=bool(re.search(r'验证码|一次性密码|动态口令|verification.code|one.time.(?:code|password)|security.code',text,re.I))
-    if otp and hints['code']:
-        return Decision('verification',.99,'包含验证码用途和短数字码。','rule',True)
-    if hints['account_verification'] and hints['links']:
-        return Decision('verification',.99,'包含账户验证用途及 HTTPS 链接，显示验证提示。','rule',True)
-    promotion=bool(re.search(r'<广告>|【广告】|\[广告\]|限时优惠|促销|discount|special.offer|sale.ends',title,re.I))
-    unsubscribe=bool(re.search(r'退订|取消订阅|unsubscribe|opt.out',body,re.I))
-    if promotion and unsubscribe:
-        return Decision('promotion',.99,'标题包含促销标记，正文包含退订入口。','rule',True)
+    # Rule-only mode is an explicit offline diagnostic, not the production classifier.
+    if model is None:
+        from .mailalerts import verification_hints
+        hints=verification_hints(title,body)
+        otp=bool(re.search(r'验证码|一次性密码|动态口令|verification.code|one.time.(?:code|password)|security.code',text,re.I))
+        if otp and hints['code']:
+            return Decision('verification',.99,'包含验证码用途和短数字码。','rule',True)
+        if hints['account_verification'] and hints['links']:
+            return Decision('verification',.99,'包含账户验证用途及 HTTPS 链接，显示验证提示。','rule',True)
+        promotion=bool(re.search(r'<广告>|【广告】|\[广告\]|限时优惠|促销|discount|special.offer|sale.ends',title,re.I))
+        unsubscribe=bool(re.search(r'退订|取消订阅|unsubscribe|opt.out',body,re.I))
+        if promotion and unsubscribe:
+            return Decision('promotion',.99,'标题包含促销标记，正文包含退订入口。','rule',True)
     if model:
         # Only a bounded, redacted excerpt is supplied, never credentials or tools.
         excerpt=re.sub(r'https?://[^\s<>]+','[链接已隐藏]',text[:5000])
@@ -46,7 +49,8 @@ def classify(title,body,model=None):
             category=obj['category']; confidence=obj['confidence']; reason=obj['reason']
             if category not in CATEGORIES or type(confidence) not in (float,int) or not math.isfinite(confidence) or not 0<=confidence<=1 or not isinstance(reason,str) or not reason.strip():
                 raise ValueError('Invalid classification')
-            return Decision(category,float(confidence),re.sub(r'(?<!\d)\d{4,8}(?!\d)','[数字已隐藏]',reason[:300]),getattr(model,'provider','model'),category in {'verification','promotion'} and confidence>=.98)
+            return Decision(category,float(confidence),re.sub(r'(?<!\d)\d{4,8}(?!\d)','[数字已隐藏]',reason[:300]),getattr(model,'provider','model'),category in {'verification','promotion'} and confidence>=.98,
+                            evidence=obj.get('evidence') if getattr(model,'provider',None)=='jev' else None)
         except Exception:
             return Decision('uncertain',0,'模型不可用或输出不符合要求，保留核对。','fallback')
     return Decision('uncertain',0,'规则不足以可靠分类，保留核对。','rule')
@@ -54,10 +58,18 @@ def classify(title,body,model=None):
 
 def save(store,task_id,decision,replace=False):
     with store.db:
+        store.db.execute('BEGIN IMMEDIATE')
+        # Re-read after network latency: a concurrent edit/review must not be hidden.
+        current=store.db.execute('SELECT status,revision FROM tasks WHERE id=?',(task_id,)).fetchone()
+        if current and (current['status'] in ('reviewed','completed') or current['revision']>1):
+            decision.filtered=False
         if replace:
             store.db.execute("DELETE FROM mail_triage WHERE task_id=? AND source!='user'",(task_id,))
-        store.db.execute('INSERT OR IGNORE INTO mail_triage(task_id,category,confidence,reason,source,filtered,version) VALUES(?,?,?,?,?,?,?)',
+        inserted=store.db.execute('INSERT OR IGNORE INTO mail_triage(task_id,category,confidence,reason,source,filtered,version) VALUES(?,?,?,?,?,?,?)',
             (task_id,decision.category,decision.confidence,decision.reason,decision.source,int(decision.filtered),decision.version))
+        if inserted.rowcount:
+            store.db.execute('INSERT OR REPLACE INTO mail_triage_evidence VALUES(?,?)',
+                             (task_id,json.dumps(decision.evidence)))
 
 
 def classify_pending(store,limit=100,model=None):
@@ -86,15 +98,19 @@ def main():
     import argparse
     from .config import Config
     from .tasks import Tasks
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--limit',type=int,default=20);p.add_argument('--ai',action='store_true');p.add_argument('--apply',action='store_true');p.add_argument('--provider',choices=['configured','jev'],default='configured')
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--limit',type=int,default=20);p.add_argument('--ai',action='store_true');p.add_argument('--apply',action='store_true');p.add_argument('--provider',choices=['configured','jev','rules'],default='jev')
+    p.add_argument('--pending',action='store_true',help='classify only unclassified mail; requires --apply')
     args=p.parse_args()
+    if args.pending and not args.apply:p.error('--pending requires --apply')
     if not 1<=args.limit<=100:p.error('limit must be 1..100')
     cfg=Config.load();store=Tasks(cfg.state_path/'tasks.sqlite')
     try:
         if args.provider=='jev':
             from .jev import JevClassifier
             model=JevClassifier()
-        else:model=configured_model(cfg) if args.ai else None
+        else:model=configured_model(cfg) if args.provider=='configured' and args.ai else None
+        if args.pending:
+            print(json.dumps({'classified':classify_pending(store,args.limit,model)}));return
         rows=store.db.execute("SELECT * FROM tasks WHERE origin LIKE 'mail:%' ORDER BY updated DESC LIMIT ?",(args.limit,)).fetchall()
         for row in rows:
             d=classify(row['title'],row['input'],model)

@@ -39,4 +39,7 @@ class JevClassifier:
         # Policy score, not a claim of calibrated correctness on this mailbox.
         score=min(confidence,probabilities[category])
         if category in ('verification','promotion'):score=min(score,1-attention)
-        return json.dumps({'category':category,'confidence':score,'reason':'Jev 分类；策略分数综合类别概率、分布置信度与需处理信号，低分保留核对。'})
+        return json.dumps({'category':category,'confidence':score,'reason':'Jev 分类；策略分数综合类别概率、分布置信度与需处理信号，低分保留核对。',
+                           'evidence':{'model':'jev-1.13.0','probabilities':probabilities,
+                                       'model_confidence':confidence,'attention_probability':attention,
+                                       'policy_score':score}})

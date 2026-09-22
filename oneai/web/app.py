@@ -158,6 +158,10 @@ def create_app(cfg=None,origin=None,dev=False):
             row['sources']=json.loads(row['sources']); row['rules']=json.loads(row['rules'])
             triage=store.db.execute('SELECT * FROM mail_triage WHERE task_id=?',(task_id,)).fetchone()
             row['mail_classification']=dict(triage) if triage else None
+            if triage:
+                evidence=store.db.execute('SELECT payload FROM mail_triage_evidence WHERE task_id=?',(task_id,)).fetchone()
+                row['mail_classification']['evidence']=json.loads(evidence[0]) if evidence else None
+                row['mail_classification']['policy_score']=triage['confidence']
             row['reply_generated']=bool(store.db.execute('SELECT 1 FROM reply_requests WHERE task_id=?',(task_id,)).fetchone())
             if row['origin'].startswith('mail:'):
                 from ..mailalerts import verification_hints
@@ -194,6 +198,15 @@ def create_app(cfg=None,origin=None,dev=False):
             except (ValueError,TypeError) as error: raise HTTPException(409,str(error))
             finally: store.db.close()
         return await run_in_threadpool(execute)
+
+    @app.get('/api/mail/classifier')
+    def classifier_status(user=Depends(authenticated)):
+        status=None
+        try:status=json.loads((cfg.state_path/'triage-status.json').read_text())
+        except (FileNotFoundError,ValueError):pass
+        return {'provider':'jev','model':'jev-1.13.0','auto_filter_threshold':.98,
+                'categories':['verification','promotion','action','notification','uncertain'],
+                'worker':status,'stale':not status or time.time()-status.get('at',0)>180}
 
     @app.get('/api/status')
     def status(user=Depends(authenticated)):

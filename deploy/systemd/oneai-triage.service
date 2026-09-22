@@ -1,0 +1,19 @@
+[Unit]
+Description=oneAI Jev mail classification
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=oneai
+Group=oneai
+WorkingDirectory=/opt/oneai
+EnvironmentFile=/etc/oneai/outlook.env
+EnvironmentFile=-/etc/oneai/jev.env
+ExecStart=/opt/oneai/.venv/bin/python -m oneai.triage_worker
+TimeoutStartSec=120
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/oneai

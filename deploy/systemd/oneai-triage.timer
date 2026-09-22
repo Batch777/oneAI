@@ -1,0 +1,10 @@
+[Unit]
+Description=Schedule bounded Jev mail classification
+
+[Timer]
+OnBootSec=30
+OnUnitInactiveSec=30
+Unit=oneai-triage.service
+
+[Install]
+WantedBy=timers.target

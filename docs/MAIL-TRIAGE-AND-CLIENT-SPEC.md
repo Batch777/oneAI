@@ -131,7 +131,9 @@ Mac 解锁是继续 UI 验证的当前阻塞。iPhone 真机主屏幕 Web Push �
 
 核心 API 输出结构化 `api_request`：随机 request_id、路由模板、HTTP 方法、状态和 duration_ms；响应附带 X-Request-ID 与 Server-Timing。未知路由统一 unmatched，不记录实际 URL、查询参数、任务 ID、cookie、请求体、邮件或验证码。关闭 Uvicorn 原始访问日志，避免检索查询出现在新增应用日志中；网关原有日志策略另行管理。未处理异常返回通用错误及请求编号，不输出异常消息里的用户数据。当前日志用于耗时和失败定位，不代替已有任务变更历史。
 
-### Jev 接入决策
+### Jev 接入决策（历史方案）
+
+**此小节已由 [Jev 分类 v2 spec](JEV-MAIL-CLASSIFICATION-SPEC.md) 取代。新代码使用独立 Jev 分类服务，尚待开户、密钥配置和上线。**
 
 官网已核验为 TypeSafe AI，注册入口为 https://console.typesafe.ai/ 。已使用关联 Outlook 请求验证码，oneAI 云端实际收取验证邮件并成功完成邮箱验证。后续页面新增主客户协议与数据处理附录，等待用户对新增协议确认；尚未完成开户、未购买额度、未启用真实邮件的 Jev 分类。
 

@@ -22,6 +22,7 @@ def login(cfg,c):
 def test_auth_boundaries(client):
     cfg,c=client
     assert c.get('/api/tasks').status_code==401
+    assert c.get('/api/mail/classifier').status_code==401
     code=auth.pair(cfg)
     assert c.post('/api/login',json={'code':code},headers={'origin':'https://evil.example'}).status_code==403
     response=c.post('/api/login',json={'code':code})
@@ -37,6 +38,16 @@ def test_auth_boundaries(client):
     assert c.get('/',headers={'host':'evil.example'}).status_code==400
     assert c.post('/api/logout',json={}).status_code==200
     assert c.get('/api/tasks').status_code==401
+
+def test_classifier_status_is_authenticated_and_never_exposes_key(client,monkeypatch):
+    import json,time
+    cfg,c=client;login(cfg,c)
+    monkeypatch.setenv('TYPESAFE_API_KEY','private-api-secret')
+    assert c.get('/api/mail/classifier').json()['stale']
+    (cfg.state_path/'triage-status.json').write_text(json.dumps({'at':time.time(),'state':'missing_key'}))
+    result=c.get('/api/mail/classifier')
+    assert result.json()['provider']=='jev' and not result.json()['stale']
+    assert 'private-api-secret' not in result.text
 
 def test_task_revision_and_retry(client):
     cfg,c=client; login(cfg,c)
@@ -211,3 +222,21 @@ def test_two_devices_cannot_approve_a_superseded_reply(client):
     assert latest['revision']==old['revision']+1 and latest['approved_revision'] is None
     assert desktop.post('/api/commands',json={'id':'desktop-new-approve','action':'approve','task_id':task_id,'revision':latest['revision']}).status_code==200
     assert phone.get('/api/tasks/'+task_id).json()['status']=='reviewed'
+
+
+def test_jev_evidence_is_available_in_task_detail(client):
+    import json
+    from oneai.tasks import Tasks
+    from oneai.mailtriage import Decision,save
+    cfg,c=client;login(cfg,c)
+    store=Tasks(cfg.state_path/'tasks.sqlite')
+    tid=store.create('mail:evidence','Newsletter','body')
+    evidence={'model':'jev-1.13.0','model_confidence':.995,'policy_score':.99,'attention_probability':.01,'probabilities':{'promotion':1.0}}
+    save(store,tid,Decision('promotion',.99,'Jev 分类','jev',True,evidence=evidence))
+    result=c.get('/api/tasks/'+tid).json()['mail_classification']
+    assert result['evidence']==evidence and result['policy_score']==.99
+    assert c.post('/api/commands',json={'id':'restore-jev','action':'restore_mail','task_id':tid}).status_code==200
+    save(store,tid,Decision('promotion',.999,'new classification','jev',True),replace=True)
+    result=c.get('/api/tasks/'+tid).json()['mail_classification']
+    assert result['source']=='user' and not result['filtered'] and result['evidence']==evidence
+    store.db.close()
