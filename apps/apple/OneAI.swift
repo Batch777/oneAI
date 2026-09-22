@@ -79,11 +79,20 @@ final class Navigation: NSObject, WKNavigationDelegate, WKUIDelegate, WKDownload
     var failure: Binding<String?>
     var downloads: [ObjectIdentifier: URL] = [:]
     weak var currentWebView: WKWebView?
+    var convertingNavigationToDownload = false
     init(_ url: URL, _ failure: Binding<String?>) { self.origin = url; self.failure = failure }
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { failed(error) }
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { failed(error) }
     func failed(_ error: Error) {
-        if (error as NSError).code != NSURLErrorCancelled { failure.wrappedValue = "请检查网络和服务器地址，然后重新连接。" }
+        let failureError = error as NSError
+        if failureError.domain == NSURLErrorDomain && failureError.code == NSURLErrorCancelled { return }
+        // WebKit reports policy interruption when a document navigation becomes
+        // WKDownload. This is expected, and must not tear down the workspace.
+        if convertingNavigationToDownload && failureError.domain == "WebKitErrorDomain" && failureError.code == 102 {
+            convertingNavigationToDownload = false
+            return
+        }
+        failure.wrappedValue = "请检查网络和服务器地址，然后重新连接。"
     }
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         currentWebView = webView
@@ -117,6 +126,7 @@ final class Navigation: NSObject, WKNavigationDelegate, WKUIDelegate, WKDownload
         currentWebView = webView
         let http = response.response as? HTTPURLResponse
         if http?.value(forHTTPHeaderField: "Content-Disposition")?.lowercased().hasPrefix("attachment") == true {
+            convertingNavigationToDownload = true
             decisionHandler(.download)
         } else { decisionHandler(.allow) }
     }
