@@ -29,3 +29,5 @@
 /* App gestures: suppress double-tap zoom, preserve scrolling and pinch zoom.
    Apply to scroll containers too: touch-action is intersected up to that ancestor. */
 html,body,body *{touch-action:manipulation}
+
+.list-status{margin:0;padding:8px 18px}.list-status:empty{display:none}

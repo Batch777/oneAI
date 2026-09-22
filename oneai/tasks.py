@@ -46,6 +46,7 @@ class Tasks:
 
         if 'mail_received' not in {r[1] for r in self.db.execute('PRAGMA table_info(tasks)')}:
             self.db.execute('ALTER TABLE tasks ADD COLUMN mail_received TEXT')
+        self.db.execute('CREATE INDEX IF NOT EXISTS tasks_status_display_date ON tasks(status,COALESCE(mail_received,updated) DESC,id DESC)')
         self.db.execute('CREATE INDEX IF NOT EXISTS tasks_display_date ON tasks(COALESCE(mail_received,updated) DESC,id DESC)')
 
     @staticmethod
