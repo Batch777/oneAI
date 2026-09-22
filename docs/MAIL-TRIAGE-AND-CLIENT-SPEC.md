@@ -133,7 +133,7 @@ Mac 解锁是继续 UI 验证的当前阻塞。iPhone 真机主屏幕 Web Push �
 
 ### Jev 接入决策（历史方案）
 
-**此小节已由 [Jev 分类 v2 spec](JEV-MAIL-CLASSIFICATION-SPEC.md) 取代。新代码使用独立 Jev 分类服务，尚待开户、密钥配置和上线。**
+**此小节已由 [Jev 分类 v2 spec](JEV-MAIL-CLASSIFICATION-SPEC.md) 取代。现已上线独立 Jev 分类服务，完成开户、密钥配置、五封合成样本及三封实际邮件的真实调用，详见 v2 spec。**
 
 官网已核验为 TypeSafe AI，注册入口为 https://console.typesafe.ai/ 。已使用关联 Outlook 请求验证码，oneAI 云端实际收取验证邮件并成功完成邮箱验证。后续页面新增主客户协议与数据处理附录，等待用户对新增协议确认；尚未完成开户、未购买额度、未启用真实邮件的 Jev 分类。
 
