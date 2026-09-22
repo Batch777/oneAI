@@ -1,6 +1,6 @@
 # oneAI 交互延迟优化研究
 
-2026-09-22；代码基线 `58b22f0`。状态：研究与实施建议，**本轮未改变生产行为**。可复现基准在 `scripts/benchmark-ui-api.py`，只生成临时合成数据，不访问真实邮箱。
+2026-09-22；代码基线 `58b22f0`。状态：研究方案与分阶段实施记录；首屏聚合、分类预取和按行更新已实现，其余为建议。可复现基准在 `scripts/benchmark-ui-api.py`，只生成临时合成数据，不访问真实邮箱。
 
 ## 结论
 
@@ -20,7 +20,7 @@
 
 这是本机合成数据与 TestClient 开销，不含 TLS、香港网络 RTT、并发写锁、手机 JS/绘制；p95 仅描述这批小样本，不是生产 SLO。前轮线上第一页 SQL 为 2.13ms，也不是完整 API 延迟。未测得生产网络/渲染分层前，不宣称网络已经被证实为唯一瓶颈。
 
-源码中的确定问题：
+研究基线中的确定问题（前三项由下述首批优化处理）：
 
 - `start()` 先 `/session`，之后请求 `/tasks`、`/status`、`/mail/alerts`，至少两轮依赖网络响应。
 - 现有缓存只在访问分类后填充，未访问分类仍有冷请求。
@@ -78,3 +78,22 @@
 - [WHATWG：Server-sent events](https://html.spec.whatwg.org/multipage/server-sent-events.html)：EventSource、重连与 Last-Event-ID 协议基础。
 - [SQLite：查询规划](https://www.sqlite.org/queryplanner.html)、[WAL](https://www.sqlite.org/wal.html)：索引排序与读写并发的适用边界。
 - [Chrome：预渲染与 Speculation Rules](https://developer.chrome.com/docs/web-platform/prerender-pages)：文档导航预加载与子资源预取的区别。
+
+
+## 首批实现（2026-09-22）
+
+- 新增已认证 `GET /api/bootstrap?q=&task_status=needs_review&mail_view=inbox`，返回 `session`、`tasks`、`status`。复用现有领域查询，旧接口保留；三个部分不是事务性的共同快照。邮件提醒独立加载，不在首屏等待 Graph 或正文解析。新前端遇到旧后端 404 时回退至旧接口。
+- 当前列表完成后延迟 500ms，串行预取其他常用分类第一页。每次缓存 generation 最多 4 次尝试，累计响应达到 256KiB 后停止（软预算，最后一个响应可以超过阈值），每次 4 秒超时。搜索、隐藏页面、非任务页、支持网络提示的平台上的省流量/2G 跳过。前台请求优先；被取消的预取不会占用前台请求的去重入口。
+- 按 ID 复用列表按钮，标题、状态、revision、日期、来源或分类展示变化才更新行内容；无变化保留节点。当前已加载列表刷新可一次取最多 500 条，旧客户端默认仍为 50 条；超过 500 条时刷新会收敛为前 500 条，可继续加载。此版本仍采用 offset，尚未提供跨分页原子快照与滚动锚点保证。
+- 私有列表仅存页面内存，20 页/15 秒；操作与退出清缓存，API 保持 no-store。Service Worker shell v6，不缓存私有 API。
+- 本地验证：167 项 Python core、19 项客户端测试通过。覆盖 bootstrap 认证与旧接口结果一致性、limit 边界、预取失效、前后台请求竞争、100 条刷新和不变行零子节点修改。
+
+尚未完成真实 iPhone 30 次分层延迟测量，不将缓存机制或合成基准等同于生产 p95 达标。SSE、持久本地投影、认证初始化优化、has_more/cursor、提醒预计算保留为后续独立改动。
+
+### 线上发布与验收
+
+香港主机部署记录 `t-hk06xucrvdwqmf4`：三个生产文件全部通过旧/新 SHA-256 检查后替换，备份位于 `/root/oneai-fast-ui-backup-1790087335`；`oneai-web` 重启后 active。备份仅包含本轮三个代码文件，回退时恢复这三个相对路径并重启 Web 服务。
+
+公网桌面与 390×844 浏览器尺寸下五类筛选可用、无横向溢出；手机尺寸任务详情加载/返回正常，配对入口可见；100 条列表的加载更多完成后手动刷新仍保留 100 条。该验证不包含 iPhone 真机性能统计。
+
+Mac 原生客户端重新连接公网后正常展示列表，点击“已筛选邮件”可先展示缓存结果。iOS 本轮只做浏览器手机尺寸验证，未重复 Simulator/真机验收。

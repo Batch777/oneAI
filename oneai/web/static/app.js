@@ -7,10 +7,17 @@ function text(tag,value,cls){const el=document.createElement(tag);el.textContent
 function announce(message){const box=$('#toast');box.textContent=message;box.hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>box.hidden=true,4200);}
 function alert(message){const b=$('#global-alert');b.replaceChildren(text('span',message));b.hidden=!message;}
 function pendingAlert(){const raw=localStorage.getItem('oneai.pending');if(!raw)return;alert('上次提交尚未确认，内容已保存在这台设备。');const b=text('button','重试提交','text-button');b.onclick=async()=>{try{const c=JSON.parse(raw);const r=await sendCommand(c,true);if(c.action==='create'){localStorage.removeItem('oneai.new');$('#create-form').reset();$('#create-dialog').close();await selectTask(r.task_id);}if(c.action==='revise'){localStorage.removeItem('oneai.draft.'+c.task_id);}announce('已确认提交');await loadTasks();if(state.task)await selectTask(state.task.id);}catch(e){announce(e.message);}};$('#global-alert').append(b);}
-async function api(path,options={}){let response;try{response=await fetch('/api'+path,{...options,headers:{'Content-Type':'application/json',...(options.method?{'X-OneAI-CSRF':state.csrf}:{}),...options.headers},credentials:'same-origin'});}catch(error){if(error.name==='AbortError')throw error;state.online=false;connection(false);throw new Error('暂时无法连接云端，内容已保留。');}let value;try{value=await response.json();}catch{throw new Error('服务返回异常，请稍后重试。');}if(!response.ok){const messages={login_required:'请重新连接这台设备。',invalid_code:'配对码无效、已使用或已过期。',too_many_attempts:'尝试次数较多，请十分钟后重试。',origin_rejected:'请从工作空间的原地址打开。',csrf_rejected:'登录状态已变化，请刷新页面。',internal_error:'服务暂时出错，请稍后重试。'};const trace=response.headers.get('X-Request-ID');const error=new Error((messages[value.detail]||value.detail||'操作失败')+(response.status>=500&&trace?'（请求编号 '+trace+'）':''));error.status=response.status;if(response.status===401&&path!='/login')showLogin();throw error;}return value;}
+async function api(path,options={}){const {quiet=false,...fetchOptions}=options;let response;try{response=await fetch('/api'+path,{...fetchOptions,headers:{'Content-Type':'application/json',...(options.method?{'X-OneAI-CSRF':state.csrf}:{}),...options.headers},credentials:'same-origin'});}catch(error){if(error.name==='AbortError')throw error;if(!quiet){state.online=false;connection(false);}throw new Error('暂时无法连接云端，内容已保留。');}let value;try{value=await response.json();}catch{throw new Error('服务返回异常，请稍后重试。');}if(!response.ok){const messages={login_required:'请重新连接这台设备。',invalid_code:'配对码无效、已使用或已过期。',too_many_attempts:'尝试次数较多，请十分钟后重试。',origin_rejected:'请从工作空间的原地址打开。',csrf_rejected:'登录状态已变化，请刷新页面。',internal_error:'服务暂时出错，请稍后重试。'};const trace=response.headers.get('X-Request-ID');const error=new Error((messages[value.detail]||value.detail||'操作失败')+(response.status>=500&&trace?'（请求编号 '+trace+'）':''));error.status=response.status;if(response.status===401&&path!='/login')showLogin();throw error;}return value;}
 function connection(online){state.online=online;$('#connection-dot').classList.toggle('online',online);$('#connection-label').textContent=online?'云端已连接':'暂时离线';$('#connection-detail').textContent=online?'任务持续处理中':'恢复网络后可继续';}
 function showLogin(){clearTaskLists();state.items=[];$('#task-list').replaceChildren();if(typeof mailDisplayCache!=='undefined')mailDisplayCache.clear();selectionSequence++;selectionRequest?.abort();state.task=null;$('#workspace').hidden=true;$('#login-screen').hidden=false;clearInterval(timer);}
-async function start(){try{const s=await api('/session');state.csrf=s.csrf;state.device=s.device_id;$('#login-screen').hidden=true;$('#workspace').hidden=false;connection(true);await Promise.all([loadTasks(),status()]);pendingAlert();clearInterval(timer);timer=setInterval(poll,15000);}catch(e){if(e.status===401)showLogin();else{$('#login-error').textContent=e.message;showLogin();}}}
+async function start(){try{
+ const key=taskListKey(),params=new URLSearchParams({q:state.query,task_status:state.filter,mail_view:state.mailView});
+ let bundle;try{bundle=await api('/bootstrap?'+params);}catch(e){if(e.status!==404)throw e;const session=await api('/session');bundle={session};}
+ const session=bundle.session;state.csrf=session.csrf;state.device=session.device_id;$('#login-screen').hidden=true;$('#workspace').hidden=false;connection(true);
+ if(bundle.tasks){rememberTaskList(key,bundle.tasks);renderTaskList(bundle.tasks);renderedTaskListKey=key;renderStatus(bundle.status);loadMailAlerts().catch(()=>{});scheduleTaskPrefetch();}
+ else await Promise.all([loadTasks(),status()]);
+ pendingAlert();clearInterval(timer);timer=setInterval(poll,15000);
+ }catch(e){if(e.status===401)showLogin();else{$('#login-error').textContent=e.message;showLogin();}}}
 const pairDigits=$$('.pair-digit');
 function syncPair(){ $('#pair-code').value=pairDigits.map(x=>x.value).join(''); }
 pairDigits.forEach((input,index)=>{
@@ -21,39 +28,77 @@ pairDigits.forEach((input,index)=>{
  input.addEventListener('keydown',e=>{if(e.key==='Backspace'&&!input.value&&index>0){e.preventDefault();pairDigits[index-1].value='';pairDigits[index-1].focus();syncPair();}if(e.key==='ArrowLeft'&&index>0){e.preventDefault();pairDigits[index-1].focus();}if(e.key==='ArrowRight'&&index<3){e.preventDefault();pairDigits[index+1].focus();}});
 });
 $('#login-form').onsubmit=async e=>{e.preventDefault();const button=e.target.querySelector('button');button.disabled=true;$('#login-error').textContent='';try{const s=await api('/login',{method:'POST',body:JSON.stringify({code:$('#pair-code').value,name:$('#device-name').value})});state.csrf=s.csrf;$('#pair-code').value='';pairDigits.forEach(x=>x.value='');await start();}catch(error){$('#login-error').textContent=error.message;}finally{button.disabled=false;}};
-async function status(){loadMailAlerts().catch(()=>{});const s=await api('/status');$('#review-count').textContent=s.counts.needs_review||0;$('#pending-count').textContent=s.counts.pending||0;connection(true);if(s.worker&&s.time-s.worker.at>180)alert('后台最近没有更新。已保存的任务仍在，可稍后刷新查看。');else if(!localStorage.getItem('oneai.pending'))alert('');return s;}
+function renderStatus(s){$('#review-count').textContent=s.counts.needs_review||0;$('#pending-count').textContent=s.counts.pending||0;connection(true);if(s.worker&&s.time-s.worker.at>180)alert('后台最近没有更新。已保存的任务仍在，可稍后刷新查看。');else if(!localStorage.getItem('oneai.pending'))alert('');}
+async function status(){loadMailAlerts().catch(()=>{});const s=await api('/status');renderStatus(s);return s;}
 // Private, bounded in-memory cache; never persists mailbox lists across logins.
 const taskLists=new Map(),taskListRequests=new Map();
 let taskListSequence=0,taskListGeneration=0,renderedTaskListKey='';
 const TASK_LIST_TTL=15000,TASK_LIST_LIMIT=20;
-function clearTaskLists(){taskListGeneration++;taskListSequence++;taskLists.clear();taskListRequests.clear();renderedTaskListKey='';}
+function clearTaskLists(){clearTimeout(taskPrefetchTimer);taskPrefetchController?.abort();taskPrefetchAttempts=0;taskPrefetchBytes=0;taskListGeneration++;taskListSequence++;taskLists.clear();taskListRequests.clear();renderedTaskListKey='';}
 function taskListKey(offset=0){return new URLSearchParams({status:state.filter,q:state.query,offset,mail_view:state.mailView}).toString();}
-async function fetchTaskList(key){
+function rememberTaskList(key,data){taskLists.delete(key);taskLists.set(key,{data,at:Date.now()});while(taskLists.size>TASK_LIST_LIMIT)taskLists.delete(taskLists.keys().next().value);}
+async function fetchTaskList(key,options={}){
  if(taskListRequests.has(key))return taskListRequests.get(key);
  const generation=taskListGeneration;
- const request=api('/tasks?'+key).then(data=>{
-  if(generation===taskListGeneration){taskLists.delete(key);taskLists.set(key,{data,at:Date.now()});while(taskLists.size>TASK_LIST_LIMIT)taskLists.delete(taskLists.keys().next().value);}
+ const request=api('/tasks?'+key,options).then(data=>{
+  if(generation===taskListGeneration)rememberTaskList(key,data);
   return data;
  }).finally(()=>{if(taskListRequests.get(key)===request)taskListRequests.delete(key);});
  taskListRequests.set(key,request);return request;
 }
-function renderTaskList(data,base=[]){state.items=base.concat(data.items);
-const list=$('#task-list');list.replaceChildren();for(const item of state.items){const b=document.createElement('button');b.className='task-row'+(state.task?.id===item.id?' selected':'');b.append(text('h3',item.title));const m=text('div','','row-meta');m.append(text('span',state.mailView==='filtered'?'已筛选':labels[item.status],`pill ${item.status}`),text('time',taskDisplayDate(item)));b.append(m);b.onclick=()=>selectTask(item.id);list.append(b);}if(!state.items.length)list.append(text('div',state.query?'没有找到匹配任务。':'这里暂时没有任务。\n新的事项准备好后会出现在这里。','empty-list'));$('#more-tasks').hidden=state.items.length>=data.total;state.offset=state.items.length;}
+function taskRowSignature(item){return JSON.stringify([item.id,item.title,item.status,item.revision,item.updated,item.mail_received,item.origin]);}
+function renderTaskList(data,base=[]){
+ const list=$('#task-list'),items=base.concat(data.items),existing=new Map([...list.children].filter(x=>x.dataset?.taskId).map(x=>[x.dataset.taskId,x]));
+ if(!items.length){if(state.items.length||!list.children.length)list.replaceChildren(text('div',state.query?'没有找到匹配任务。':'这里暂时没有任务。\n新的事项准备好后会出现在这里。','empty-list'));}
+ else{
+  for(const child of [...list.children])if(!child.dataset?.taskId)child.remove();
+  for(let i=0;i<items.length;i++){
+   const item=items[i],signature=taskRowSignature(item)+'|'+state.mailView;
+   let row=existing.get(item.id);
+   if(!row){row=document.createElement('button');row.dataset.taskId=item.id;row.onclick=()=>selectTask(item.id);}
+   if(row.dataset.signature!==signature){const meta=text('div','','row-meta');meta.append(text('span',state.mailView==='filtered'?'已筛选':labels[item.status],`pill ${item.status}`),text('time',taskDisplayDate(item)));row.replaceChildren(text('h3',item.title),meta);row.dataset.signature=signature;}
+   const cls='task-row'+(state.task?.id===item.id?' selected':'');if(row.className!==cls)row.className=cls;
+   if(list.children[i]!==row)list.insertBefore(row,list.children[i]||null);existing.delete(item.id);
+  }
+  for(const row of existing.values())row.remove();
+ }
+ state.items=items;state.offset=items.length;$('#more-tasks').hidden=items.length>=data.total;
+}
+let taskPrefetchTimer,taskPrefetchController,taskPrefetchKey='',taskPrefetchAttempts=0,taskPrefetchBytes=0;
+function scheduleTaskPrefetch(){
+ clearTimeout(taskPrefetchTimer);
+ if(state.query||document.hidden||state.page!=='tasks'||navigator.connection?.saveData||/2g/.test(navigator.connection?.effectiveType||'')||taskPrefetchAttempts>=4||taskPrefetchBytes>=262144)return;
+ taskPrefetchTimer=setTimeout(prefetchTaskList,500);
+}
+async function prefetchTaskList(){
+ if(taskPrefetchController||state.query||document.hidden||state.page!=='tasks'||!state.csrf)return;
+ const generation=taskListGeneration;
+ const candidates=[['needs_review','inbox'],['','inbox'],['pending','inbox'],['completed','inbox'],['','filtered']];
+ const key=candidates.map(([status,mail_view])=>new URLSearchParams({status,q:'',offset:0,mail_view}).toString()).find(k=>k!==taskListKey()&&!taskListRequests.has(k)&&(!taskLists.has(k)||Date.now()-taskLists.get(k).at>=TASK_LIST_TTL));
+ if(!key)return;
+ const controller=new AbortController();taskPrefetchController=controller;taskPrefetchKey=key;taskPrefetchAttempts++;
+ const timeout=setTimeout(()=>controller.abort(),4000);
+ try{const data=await fetchTaskList(key,{signal:controller.signal,quiet:true});if(generation===taskListGeneration)taskPrefetchBytes+=new TextEncoder().encode(JSON.stringify(data)).length;}
+ catch{}finally{clearTimeout(timeout);if(taskPrefetchController===controller){taskPrefetchController=null;taskPrefetchKey='';}if(generation===taskListGeneration)scheduleTaskPrefetch();}
+}
 
 async function loadTasks(append=false,force=true){
+ clearTimeout(taskPrefetchTimer);
+ if(taskPrefetchController&&taskPrefetchKey!==taskListKey(append?state.offset:0)){taskListRequests.delete(taskPrefetchKey);taskPrefetchController.abort();}
  const sequence=++taskListSequence,generation=taskListGeneration;
- const key=taskListKey(append?state.offset:0),baseKey=taskListKey();
+ const baseKey=taskListKey(),refreshLoaded=!append&&force&&renderedTaskListKey===baseKey&&state.items.length>50;
+ const key=taskListKey(append?state.offset:0)+(refreshLoaded?'&limit='+Math.min(state.items.length,500):'');
  const base=append?state.items.slice():[],cached=taskLists.get(key);
  const notice=$('#task-list-status'),more=$('#more-tasks');
  const current=()=>sequence===taskListSequence&&generation===taskListGeneration&&baseKey===taskListKey();
  if(append&&renderedTaskListKey!==baseKey)return;
- if(cached&&!append){renderTaskList(cached.data);renderedTaskListKey=baseKey;}
+ if(cached&&!append&&!(force&&renderedTaskListKey===baseKey)){renderTaskList(cached.data);renderedTaskListKey=baseKey;}
  else if(!append&&renderedTaskListKey!==baseKey){state.items=[];state.offset=0;$('#task-list').replaceChildren();more.hidden=true;}
- if(cached&&!append&&!force&&Date.now()-cached.at<TASK_LIST_TTL){notice.textContent='';more.disabled=false;return;}
+ if(cached&&!append&&!force&&Date.now()-cached.at<TASK_LIST_TTL){notice.textContent='';more.disabled=false;scheduleTaskPrefetch();return;}
  notice.textContent=cached?'显示已缓存的列表，正在更新…':append?'正在加载更多…':'正在加载…';more.disabled=true;
  try{const data=await fetchTaskList(key);if(!current())return;renderTaskList(data,base);renderedTaskListKey=baseKey;notice.textContent='';}
  catch(error){if(!current())return;notice.textContent=cached?'暂时无法更新，当前为缓存列表。':error.message;}
- finally{if(current())more.disabled=false;}
+ finally{if(current()){more.disabled=false;scheduleTaskPrefetch();}}
 }
 function disclosure(title,value,parent){const d=text('details','','detail-section');d.append(text('summary',title));const body=text('div','','section-content');if(typeof value==='string')body.append(text('pre',value,'plain-text'));else value(body);d.append(body);parent.append(d);return d;}
 function renderBody(value,parent){for(const line of value.split('\n')){if(/^##? /.test(line))parent.append(text('h3',line.replace(/^#+ /,'')));else if(line.startsWith('> '))parent.append(text('blockquote',line.slice(2)));else if(line.trim())parent.append(text('p',line));}}

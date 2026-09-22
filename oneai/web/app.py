@@ -135,8 +135,8 @@ def create_app(cfg=None,origin=None,dev=False):
         return {'ok':True}
 
     @app.get('/api/tasks')
-    def tasks(q:str='',status:str='',offset:int=0,mail_view:str='inbox',user=Depends(authenticated)):
-        if len(q)>200 or offset<0: raise HTTPException(400,'invalid_query')
+    def tasks(q:str='',status:str='',offset:int=0,mail_view:str='inbox',limit:int=50,user=Depends(authenticated)):
+        if len(q)>200 or offset<0 or not 1<=limit<=500: raise HTTPException(400,'invalid_query')
         store=Tasks(cfg.state_path/'tasks.sqlite',read_only=True)
         try:
             if mail_view not in ('inbox','filtered','all'): raise HTTPException(400,'invalid_mail_view')
@@ -148,7 +148,7 @@ def create_app(cfg=None,origin=None,dev=False):
             if q: where.append('(instr(lower(title),lower(?))>0 OR instr(lower(input),lower(?))>0)'); values.extend([q,q])
             clause=' WHERE '+' AND '.join(where) if where else ''
             total=store.db.execute('SELECT count(*) FROM tasks'+clause,values).fetchone()[0]
-            rows=store.db.execute('SELECT id,origin,title,status,revision,updated,mail_received FROM tasks'+clause+' ORDER BY COALESCE(mail_received,updated) DESC,id DESC LIMIT 50 OFFSET ?',values+[offset]).fetchall()
+            rows=store.db.execute('SELECT id,origin,title,status,revision,updated,mail_received FROM tasks'+clause+' ORDER BY COALESCE(mail_received,updated) DESC,id DESC LIMIT ? OFFSET ?',values+[limit,offset]).fetchall()
             return {'items':[dict(r) for r in rows],'total':total}
         finally: store.db.close()
 
@@ -274,6 +274,14 @@ def create_app(cfg=None,origin=None,dev=False):
         try: mail=json.loads((cfg.state_path/'outlook-status.json').read_text())
         except (FileNotFoundError,ValueError): pass
         return {'counts':counts,'worker':worker,'mail':mail,'time':time.time()}
+
+    @app.get('/api/bootstrap')
+    def bootstrap(q:str='',task_status:str='needs_review',mail_view:str='inbox',user=Depends(authenticated)):
+        # A presentation aggregate only: existing domain APIs remain authoritative.
+        # No Graph calls or mail-body parsing on the startup critical path.
+        return {'session':{'csrf':user['csrf'],'device_id':user['id'],'name':user['name']},
+                'tasks':tasks(q=q,status=task_status,offset=0,mail_view=mail_view,user=user),
+                'status':status(user=user)}
 
     @app.get('/api/push/config')
     def push_config(user=Depends(authenticated)):

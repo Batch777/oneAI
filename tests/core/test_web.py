@@ -265,3 +265,29 @@ def test_invalid_admin_code_does_not_replace_active_code(client,code):
     auth.pair(cfg,code='7319')
     with pytest.raises(ValueError,match='four_digits'): auth.pair(cfg,code=code)
     assert c.post('/api/login',json={'code':'7319'}).status_code==200
+
+
+def test_bootstrap_is_authenticated_and_matches_existing_apis(client):
+    cfg,c=client
+    assert c.get('/api/bootstrap').status_code==401
+    login(cfg,c)
+    bundle=c.get('/api/bootstrap').json()
+    assert bundle['session']==c.get('/api/session').json()
+    assert bundle['tasks']==c.get('/api/tasks',params={'status':'needs_review'}).json()
+    assert bundle['status']['counts']==c.get('/api/status').json()['counts']
+    assert c.get('/api/bootstrap?task_status=invalid').status_code==400
+    assert c.get('/api/bootstrap').headers['cache-control']=='no-store'
+
+
+def test_list_refresh_limit_is_bounded_and_preserves_order(client):
+    from oneai.tasks import Tasks
+    cfg,c=client;login(cfg,c)
+    store=Tasks(cfg.state_path/'tasks.sqlite')
+    for i in range(105):store.create('synthetic:'+str(i),'test '+str(i),'body')
+    store.db.close()
+    first=c.get('/api/tasks').json()
+    expanded=c.get('/api/tasks?limit=100').json()
+    assert len(first['items'])==50 and len(expanded['items'])==100
+    assert first['items']==expanded['items'][:50]
+    assert c.get('/api/tasks?limit=501').status_code==400
+    assert c.get('/api/tasks?limit=0').status_code==400
