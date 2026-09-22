@@ -53,3 +53,5 @@ flowchart TB
 增加 `tasks_status_display_date(status, COALESCE(mail_received,updated) DESC, id DESC)`，匹配分类列表排序。上线后样本查询返回 50 行耗时 2.13ms，查询计划使用该索引；这是服务器 SQL 耗时，不是完整网络或页面渲染时延，也没有改前基准可用于声称倍数提升。
 
 验证：165 项 Python core 测试、15 项客户端测试通过，包含缓存命中、过期刷新、乱序响应、请求去重、分页、失效和筛选隔离。公网 390px 检查五类筛选与设备页；无横向溢出，缓存分类可立即展示，冷分类显示加载提示。本轮未执行会消耗配对码的登录操作。
+
+后续性能路线与可复现基准见 [PERFORMANCE-PLAN.md](PERFORMANCE-PLAN.md)：优先常用分类预取、bootstrap 和无变化不重绘，再做持久变更游标与 SSE。研究方案尚未上线。
