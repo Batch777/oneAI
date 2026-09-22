@@ -74,9 +74,11 @@ struct Workspace: View {
     }
 }
 
-final class Navigation: NSObject, WKNavigationDelegate, WKUIDelegate {
+final class Navigation: NSObject, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate {
     let origin: URL
     var failure: Binding<String?>
+    var downloads: [ObjectIdentifier: URL] = [:]
+    weak var currentWebView: WKWebView?
     init(_ url: URL, _ failure: Binding<String?>) { self.origin = url; self.failure = failure }
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { failed(error) }
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { failed(error) }
@@ -84,9 +86,10 @@ final class Navigation: NSObject, WKNavigationDelegate, WKUIDelegate {
         if (error as NSError).code != NSURLErrorCancelled { failure.wrappedValue = "请检查网络和服务器地址，然后重新连接。" }
     }
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        currentWebView = webView
         if action.navigationType == .linkActivated, let url = action.request.url,
-           url.scheme == "https", url.host != nil, url.user == nil, url.password == nil,
-           url.host != origin.host || url.port != origin.port {
+           ["https", "http", "mailto"].contains(url.scheme ?? ""), url.user == nil, url.password == nil,
+           url.host != origin.host || url.port != origin.port || url.scheme != origin.scheme {
             // Only an explicit link click may leave the workspace. The web UI
             // asks the user to inspect the destination before verification links.
             #if os(macOS)
@@ -98,6 +101,51 @@ final class Navigation: NSObject, WKNavigationDelegate, WKUIDelegate {
         }
         guard let url = action.request.url, url.scheme == origin.scheme, url.host == origin.host, url.port == origin.port else { decisionHandler(.cancel); return }
         decisionHandler(.allow)
+    }
+    func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for action: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
+        // Handle explicit new-window links without giving email content a new web view.
+        guard action.navigationType == .linkActivated, let url = action.request.url,
+              ["https", "http", "mailto"].contains(url.scheme ?? ""), url.user == nil, url.password == nil else { return nil }
+        #if os(macOS)
+        NSWorkspace.shared.open(url)
+        #else
+        UIApplication.shared.open(url)
+        #endif
+        return nil
+    }
+    func webView(_ webView: WKWebView, decidePolicyFor response: WKNavigationResponse, decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
+        currentWebView = webView
+        let http = response.response as? HTTPURLResponse
+        if http?.value(forHTTPHeaderField: "Content-Disposition")?.lowercased().hasPrefix("attachment") == true {
+            decisionHandler(.download)
+        } else { decisionHandler(.allow) }
+    }
+    func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) { download.delegate = self }
+    func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) { download.delegate = self }
+    func download(_ download: WKDownload, decideDestinationUsing response: URLResponse, suggestedFilename: String, completionHandler: @escaping (URL?) -> Void) {
+        let name = (suggestedFilename as NSString).lastPathComponent
+        #if os(macOS)
+        let panel = NSSavePanel(); panel.nameFieldStringValue = name
+        panel.begin { result in completionHandler(result == .OK ? panel.url : nil) }
+        #else
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        do { try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true) }
+        catch { completionHandler(nil); return }
+        let url = folder.appendingPathComponent(name.isEmpty ? "attachment" : name)
+        downloads[ObjectIdentifier(download)] = url; completionHandler(url)
+        #endif
+    }
+    func downloadDidFinish(_ download: WKDownload) {
+        #if os(iOS)
+        guard let url = downloads.removeValue(forKey: ObjectIdentifier(download)), let controller = currentWebView?.window?.rootViewController else { return }
+        let share = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        share.popoverPresentationController?.sourceView = controller.view
+        share.popoverPresentationController?.sourceRect = CGRect(x: controller.view.bounds.midX, y: controller.view.bounds.midY, width: 1, height: 1)
+        controller.present(share, animated: true)
+        #endif
+    }
+    func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
+        downloads.removeValue(forKey: ObjectIdentifier(download))
     }
     func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (Bool) -> Void) {
         #if os(macOS)

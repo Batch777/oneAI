@@ -24,7 +24,7 @@ def ingest_mail(cfg: Config, tasks: Tasks) -> int:
             current = db.execute('SELECT payload,deleted FROM messages WHERE id=?',(mid,)).fetchone()
             if current and not current[1] and current[0] == payload:
                 body = (message.get('body') or {}).get('content') or message.get('bodyPreview','')
-                tasks.create('mail:'+event_id, message.get('subject') or '(无主题邮件)', body)
+                tasks.create('mail:'+event_id, message.get('subject') or '(无主题邮件)', body, message.get('receivedDateTime'))
                 count += 1
             db.execute("UPDATE work SET status='processed' WHERE id=?",(event_id,))
     return count

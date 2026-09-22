@@ -7,7 +7,7 @@ import re
 import secrets
 import sqlite3
 import time
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, quote
 from fastapi import FastAPI, Request, Response, HTTPException, Depends
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.concurrency import run_in_threadpool
@@ -29,7 +29,7 @@ def create_app(cfg=None,origin=None,dev=False):
         raise ValueError('HTTPS origin required')
     app=FastAPI(docs_url=None,redoc_url=None,openapi_url=None)
     app.state.cfg=cfg
-    initial=Tasks(cfg.state_path/'tasks.sqlite'); initial.db.close()
+    initial=Tasks(cfg.state_path/'tasks.sqlite'); initial.backfill_mail_dates(cfg.state_path/'outlook.sqlite'); initial.db.close()
 
     @app.middleware('http')
     async def guard(request,call_next):
@@ -47,7 +47,7 @@ def create_app(cfg=None,origin=None,dev=False):
         response.headers['X-Content-Type-Options']='nosniff'
         response.headers['Referrer-Policy']='no-referrer'
         response.headers['X-Frame-Options']='DENY'
-        response.headers['Content-Security-Policy']="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+        response.headers['Content-Security-Policy']="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
         response.headers['Cache-Control']='no-store' if request.url.path.startswith('/api/') else 'no-cache'
         return response
 
@@ -146,7 +146,7 @@ def create_app(cfg=None,origin=None,dev=False):
             if q: where.append('(instr(lower(title),lower(?))>0 OR instr(lower(input),lower(?))>0)'); values.extend([q,q])
             clause=' WHERE '+' AND '.join(where) if where else ''
             total=store.db.execute('SELECT count(*) FROM tasks'+clause,values).fetchone()[0]
-            rows=store.db.execute('SELECT id,title,status,revision,updated FROM tasks'+clause+' ORDER BY updated DESC,id DESC LIMIT 50 OFFSET ?',values+[offset]).fetchall()
+            rows=store.db.execute('SELECT id,origin,title,status,revision,updated,mail_received FROM tasks'+clause+' ORDER BY COALESCE(mail_received,updated) DESC,id DESC LIMIT 50 OFFSET ?',values+[offset]).fetchall()
             return {'items':[dict(r) for r in rows],'total':total}
         finally: store.db.close()
 
@@ -169,6 +169,52 @@ def create_app(cfg=None,origin=None,dev=False):
             return row
         except ValueError: raise HTTPException(404,'task_not_found')
         finally: store.db.close()
+
+    def mail_task(task_id):
+        store=Tasks(cfg.state_path/'tasks.sqlite',read_only=True)
+        try:return store.get(task_id)
+        except ValueError:raise HTTPException(404,'task_not_found')
+        finally:store.db.close()
+
+    def mail_call(fn,*args):
+        from urllib.error import HTTPError
+        from connectors.outlook.connector import NeedsAuthorization
+        try:return fn(cfg,*args)
+        except HTTPError as error:
+            raise HTTPException(410 if error.code==404 else 503,'mail_unavailable' if error.code==404 else 'mail_fetch_failed') from None
+        except NeedsAuthorization:raise HTTPException(503,'mail_auth_required') from None
+        except RuntimeError:raise HTTPException(503,'mail_sync_busy') from None
+        except ValueError as error:
+            code=str(error)
+            raise HTTPException(400,code if code in ('mail_too_large','not_mail','mail_unavailable','attachment_unavailable','too_many_attachments','thumbnail_unavailable') else 'mail_fetch_failed') from None
+        except (OSError,TimeoutError):raise HTTPException(503,'mail_fetch_failed') from None
+
+    @app.get('/api/tasks/{task_id}/mail')
+    def mail_display(task_id:str,user=Depends(authenticated)):
+        from ..mailview import display
+        return mail_call(display,mail_task(task_id))
+
+    @app.get('/api/tasks/{task_id}/thumbnail')
+    def mail_thumbnail(task_id:str,attachment_id:str,user=Depends(authenticated)):
+        from ..mailview import thumbnail
+        if not attachment_id or len(attachment_id)>2048:raise HTTPException(400,'invalid_attachment')
+        data=mail_call(thumbnail,mail_task(task_id),attachment_id)
+        return Response(data,media_type='image/jpeg')
+
+    @app.get('/api/tasks/{task_id}/attachment')
+    def mail_attachment(task_id:str,attachment_id:str,preview:bool=False,user=Depends(authenticated)):
+        from ..mailview import attachment
+        if not attachment_id or len(attachment_id)>2048:raise HTTPException(400,'invalid_attachment')
+        data,name,mime=mail_call(attachment,mail_task(task_id),attachment_id)
+        media='application/octet-stream';disposition='attachment'
+        if preview:
+            if data.startswith(b'\x89PNG\r\n\x1a\n'):media='image/png'
+            elif data.startswith(b'\xff\xd8\xff'):media='image/jpeg'
+            elif data.startswith((b'GIF87a',b'GIF89a')):media='image/gif'
+            elif data.startswith(b'RIFF') and data[8:12]==b'WEBP':media='image/webp'
+            else:raise HTTPException(400,'preview_unavailable')
+            disposition='inline'
+        return Response(data,media_type=media,headers={'Content-Disposition':disposition+"; filename*=UTF-8''"+quote(name,safe='')})
 
     @app.get('/api/tasks/{task_id}/context')
     def task_context(task_id:str,user=Depends(authenticated)):
@@ -284,7 +330,7 @@ def create_app(cfg=None,origin=None,dev=False):
 
     @app.get('/{name}')
     def static(name:str):
-        if name not in ('app.js','sessions.js','app.css','sw.js','manifest.webmanifest','icon.svg','icon-192.png','icon-512.png','apple-touch-icon.png'): raise HTTPException(404)
+        if name not in ('app.js','mail.js','sessions.js','app.css','sw.js','manifest.webmanifest','icon.svg','icon-192.png','icon-512.png','apple-touch-icon.png'): raise HTTPException(404)
         return FileResponse(STATIC/name)
 
     return app

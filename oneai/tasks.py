@@ -1,6 +1,7 @@
 """Durable local tasks. Approval records acknowledge a draft, never authorize sending."""
 from __future__ import annotations
 import hashlib
+from datetime import datetime, timezone
 import json
 import os
 import sqlite3
@@ -43,10 +44,36 @@ class Tasks:
           detail TEXT NOT NULL,created TEXT NOT NULL);
         ''')
 
-    def create(self, origin: str, title: str, body: str) -> str:
+        if 'mail_received' not in {r[1] for r in self.db.execute('PRAGMA table_info(tasks)')}:
+            self.db.execute('ALTER TABLE tasks ADD COLUMN mail_received TEXT')
+        self.db.execute('CREATE INDEX IF NOT EXISTS tasks_display_date ON tasks(COALESCE(mail_received,updated) DESC,id DESC)')
+
+    @staticmethod
+    def received_date(value):
+        try:
+            date=datetime.fromisoformat(value.replace('Z','+00:00'))
+            if date.tzinfo is None:return None
+            return date.astimezone(timezone.utc).isoformat()
+        except (ValueError,TypeError,AttributeError):return None
+
+    def backfill_mail_dates(self, path):
+        if not path.exists():return
+        missing=self.db.execute("SELECT id,origin FROM tasks WHERE origin LIKE 'mail:%' AND mail_received IS NULL").fetchall()
+        if not missing:return
+        with sqlite3.connect(path.resolve().as_uri()+'?mode=ro',uri=True) as source, self.db:
+            for row in missing:
+                event=source.execute('SELECT payload FROM work WHERE id=?',(row['origin'][5:],)).fetchone()
+                if event:
+                    try:date=self.received_date(json.loads(event[0]).get('receivedDateTime'))
+                    except (ValueError,AttributeError):continue
+                    if date:self.db.execute('UPDATE tasks SET mail_received=? WHERE id=?',(date,row['id']))
+
+    def create(self, origin: str, title: str, body: str, received: str | None = None) -> str:
         task_id = digest(origin)[:24]
         with self.db:
             self.db.execute('INSERT OR IGNORE INTO tasks(id,origin,title,input,updated) VALUES(?,?,?,?,?)', (task_id,origin,title,body,now_iso()))
+            date=self.received_date(received) if origin.startswith('mail:') else None
+            if date:self.db.execute('UPDATE tasks SET mail_received=? WHERE id=?',(date,task_id))
         return task_id
 
     def get(self, task_id: str):

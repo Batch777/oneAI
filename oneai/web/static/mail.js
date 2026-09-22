@@ -1,0 +1,36 @@
+'use strict';
+const mailDisplayCache=new Map();
+function mailURL(value){try{if(typeof value!=='string'||/[\x00-\x20]/.test(value)||/%0[ad]/i.test(value))return null;const u=new URL(value);return ['http:','https:','mailto:'].includes(u.protocol)&&!u.username&&!u.password?u.href:null;}catch{return null;}}
+function mailLink(value,label){const a=document.createElement('a'),url=mailURL(value);a.textContent=label||value;if(url){a.href=url;a.target='_blank';a.rel='noopener noreferrer';a.title=url;}return a;}
+function mailText(value,parent){const pattern=/https?:\/\/[^\s<>]+|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;let start=0;for(const match of value.matchAll(pattern)){let token=match[0].replace(/[.,;!?，。；！？”）]+$/,'');parent.append(document.createTextNode(value.slice(start,match.index)));parent.append(mailLink(token.includes('://')?token:'mailto:'+token,token));start=match.index+token.length;}parent.append(document.createTextNode(value.slice(start)));}
+function mailNodes(nodes,parent,inLink=false,images=[]){const allowed=new Set('p br strong b em i u ul ol li code pre blockquote h1 h2 h3 h4 h5 h6 table thead tbody tfoot tr td th div span hr a'.split(' '));for(const n of nodes){if(typeof n.text==='string'){if(inLink)parent.append(document.createTextNode(n.text));else mailText(n.text,parent);continue;}if(n.tag==='image'){const placeholder=text('span',(n.cid?'内嵌图片':'外部图片未加载')+(n.alt?' · '+n.alt:''),'mail-image-placeholder');parent.append(placeholder);const url=mailURL(n.remote_src);if(url?.startsWith('https://'))images.push({placeholder,url,alt:n.alt||'邮件图片'});continue;}if(!allowed.has(n.tag))continue;const el=n.tag==='a'?mailLink(n.href,''):document.createElement(n.tag);if(n.tag==='a')el.textContent='';for(const key of ['colspan','rowspan'])if(['td','th'].includes(n.tag)&&Number.isInteger(n[key]))el.setAttribute(key,String(Math.min(20,n[key])));if(n.tag==='a'){for(const child of n.children||[]){if(typeof child.text==='string')el.append(document.createTextNode(child.text));else mailNodes([child],el,true,images);}}else mailNodes(n.children||[],el,inLink,images);if(n.tag==='table'){const wrap=text('div','','mail-table-scroll');wrap.append(el);parent.append(wrap);}else parent.append(el);}}
+function mailPeople(label,people,parent){if(!people?.length)return;const row=text('p','','mail-addresses');row.append(text('span',label+'：','hint'));for(const [i,p] of people.entries()){if(i)row.append(document.createTextNode('；'));const e=p.emailAddress||{},address=e.address||'';row.append(mailLink('mailto:'+address,(e.name&&e.name!==address?e.name+' <'+address+'>':address)||'未知地址'));}parent.append(row);}
+function renderMailView(t,parent){
+ const shell=text('section','','mail-message');shell.setAttribute('aria-label','邮件原文');shell.append(text('p','正在加载 Outlook 原文与附件列表…','hint'));const fallback=text('pre','','mail-plain');mailText(t.input||'',fallback);shell.append(fallback);parent.append(shell);
+ const load=async()=>{try{let view=mailDisplayCache.get(t.id);if(!view){view=await api('/tasks/'+t.id+'/mail');if(mailDisplayCache.size>=20)mailDisplayCache.delete(mailDisplayCache.keys().next().value);mailDisplayCache.set(t.id,view);}if(!shell.isConnected)return;shell.replaceChildren();const header=text('header','','mail-header');mailPeople('发件人',view.from?[view.from]:[],header);mailPeople('收件人',view.to,header);mailPeople('抄送',view.cc,header);mailPeople('回复地址',view.reply_to,header);if(view.received_at)header.append(text('time',new Date(view.received_at).toLocaleString('zh-CN')));if(view.web_link)header.append(mailLink(view.web_link,'在 Outlook 中打开 ↗'));shell.append(header);
+ const images=[],content=text('div','','mail-readable');mailNodes(view.nodes,content,false,images);if(images.length)renderRemoteImages(images,shell);shell.append(content);
+ const files=text('section','','mail-attachments');files.append(text('h3','附件（'+view.attachments.length+'）'));
+ for(const item of view.attachments)renderAttachment(t,item,files);shell.append(files);
+ disclosure('查看原始 '+(String(view.body_type).toLowerCase()==='html'?'HTML':'纯文本'),view.raw,shell);
+ }catch(error){if(!shell.isConnected)return;const names={mail_sync_busy:'邮箱正在同步，请稍后重试。',mail_auth_required:'邮箱授权需要更新。',mail_unavailable:'Outlook 原邮件已删除或暂不可用。',mail_fetch_failed:'暂时无法读取 Outlook 原文。',mail_too_large:'邮件较大，请在 Outlook 中打开。'};shell.replaceChildren(text('p',(names[error.message]||'原文暂未加载，下面保留同步时的文本。'),'hint'),fallback);const retry=text('button','重新加载原文','secondary');retry.onclick=load;shell.prepend(retry);}};
+ load();
+}
+
+function renderRemoteImages(images,parent){
+ const controls=text('div','','mail-image-consent'),load=text('button','加载外部图片（'+images.length+'）','secondary');controls.append(load);parent.append(controls);
+ load.onclick=()=>{const notice=text('p','加载会连接邮件中的图片服务器，可能向发件方暴露 IP、打开记录及图片链接中的标识。仅对本次打开的邮件生效。','hint'),yes=text('button','确认加载','secondary'),no=text('button','取消','text-button');controls.replaceChildren(notice,yes,no);no.onclick=()=>controls.replaceChildren(load);yes.onclick=()=>{controls.replaceChildren(text('p','已允许本封邮件的外部图片；关闭邮件后恢复默认不加载。','hint'));for(const {placeholder,url,alt} of images){const img=document.createElement('img');img.alt=alt;img.referrerPolicy='no-referrer';img.loading='lazy';img.onerror=()=>{img.replaceWith(text('span','图片加载失败 · '+alt,'mail-image-placeholder'));};img.src=url;placeholder.replaceWith(img);}};};
+}
+
+function renderAttachment(t,item,files){
+ const card=text('article','','mail-attachment');card.append(text('strong',item.name),text('small',(item.size/1024).toFixed(1)+' KB'+(item.inline?' · 内嵌附件':'')));
+ if(item.downloadable){
+  const query=new URLSearchParams({attachment_id:item.id}),base='/api/tasks/'+t.id,url=base+'/attachment?'+query;
+  const download=document.createElement('a');download.href=url;download.textContent='下载 / 打开原文件';download.className='secondary';
+  const picture=/^image\/(png|jpeg|gif|webp)$/i.test(item.content_type)||/\.(png|jpe?g|gif|webp)$/i.test(item.name);
+  if(picture){
+   const chooser=text('button','','mail-thumbnail-button'),img=document.createElement('img');chooser.setAttribute('aria-label','查看图片操作：'+item.name);img.alt='缩略图 · '+item.name;img.loading='lazy';img.decoding='async';img.src=base+'/thumbnail?'+query;img.onerror=()=>{img.remove();chooser.textContent='缩略图暂不可用，点击查看操作';};chooser.append(img);card.append(chooser);
+   const actions=text('div','','mail-file-actions');actions.hidden=true;const large=text('button','查看大图','text-button');large.onclick=()=>{large.disabled=true;large.textContent='正在加载大图…';const full=document.createElement('img');full.alt=item.name;full.onload=()=>{large.textContent='大图已加载';};full.onerror=()=>{full.remove();large.disabled=false;large.textContent='加载失败，重试';};full.src=url+'&preview=true';actions.append(full);};actions.append(large,download);chooser.onclick=()=>{actions.hidden=!actions.hidden;chooser.setAttribute('aria-expanded',String(!actions.hidden));};chooser.setAttribute('aria-expanded','false');card.append(actions);
+  }else card.append(download);
+ }else card.append(text('p','此附件请在 Outlook 中打开（云端引用或超过 25MB）。','hint'));
+ files.append(card);
+}
