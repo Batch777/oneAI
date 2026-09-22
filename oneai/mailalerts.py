@@ -15,6 +15,12 @@ def verification_hints(subject,body):
     for pattern in [r'(?:验证码|动态口令|一次性密码)\s*(?:为|是|[:：])?\s*([0-9]{4,8})(?!\d)',r'(?:verification|security|one[- ]time|sign[- ]in)\s*(?:code|password)\s*(?:is|[:：])?\s*([0-9]{4,8})(?!\d)',r'(?<!\d)([0-9]{4,8})\s*(?:is your|为您的).{0,20}(?:code|验证码)']:
         match=re.search(pattern,text,re.I)
         if match:code=match[1];break
+    # Some providers place a standalone code after a paragraph, not beside
+    # "verification code". Require an explicit below-code instruction and a
+    # single unambiguous numeric line; never guess among multiple candidates.
+    if not code and re.search(r'(?:use|enter) (?:the )?(?:verification )?code below|验证码如下|以下验证码',text,re.I):
+        candidates={line.strip() for line in text.splitlines() if re.fullmatch(r'[0-9]{4,8}',line.strip())}
+        if len(candidates)==1:code=candidates.pop()
     account=bool(re.search(r'验证.{0,12}(?:账户|帐户|账号|邮箱|邮件地址)|激活.{0,12}(?:账户|帐户|账号)|(?:verify|confirm|activate).{0,25}(?:account|email|address)',text,re.I))
     links=[]
     if account:

@@ -7,12 +7,15 @@ and line range so answers can always be traced to raw data.
 from __future__ import annotations
 
 import re
+import os
+import stat
+import time
 import hashlib
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
-from .vault import iter_markdown, resolve_note
+from .vault import resolve_note
 
 # trigram tokenizer: substring matching, works for unsegmented CJK text.
 SCHEMA = """
@@ -29,6 +32,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS chunks USING fts5(
 """
 
 MAX_CHUNK_CHARS = 1200
+HASH_AUDIT_SECONDS = 86400
 MIN_CHUNK_CHARS = 60  # only merge near-empty chunks (lone headings) into the next
 
 # Generated artifacts are NOT knowledge sources — never index them,
@@ -147,6 +151,9 @@ class Index:
         self.conn.executescript(SCHEMA + """
             CREATE TABLE IF NOT EXISTS files(path TEXT PRIMARY KEY, version TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS file_state(
+                path TEXT PRIMARY KEY, size INTEGER, mtime_ns INTEGER, ctime_ns INTEGER,
+                device INTEGER, inode INTEGER, verified_at REAL NOT NULL);
         """)
         # Historical evidence is authoritative data, separate from the disposable index.
         self.sources = sqlite3.connect(db_path.parent / "sources.sqlite", timeout=30)
@@ -189,29 +196,69 @@ class Index:
         if row is None or row[0] != root:
             self.conn.execute("DELETE FROM chunks")
             self.conn.execute("DELETE FROM files")
+            self.conn.execute("DELETE FROM file_state")
             self.conn.execute("INSERT OR REPLACE INTO metadata VALUES ('root',?)", (root,))
 
+    @staticmethod
+    def _fingerprint(path: Path):
+        st=path.stat()
+        return (st.st_size,st.st_mtime_ns,st.st_ctime_ns,st.st_dev,st.st_ino)
+
+    def _candidates(self, vault: Path):
+        # Prune generated trees before traversing them; unreadable trees abort
+        # the transaction rather than being mistaken for deletions.
+        def unavailable(error): raise error
+        for directory,dirs,files in os.walk(vault,topdown=True,followlinks=False,onerror=unavailable):
+            root=Path(directory)
+            dirs[:]=sorted(d for d in dirs if not (root/d).is_symlink()
+                           and not self.excluded((root/d).relative_to(vault).as_posix()))
+            for name in sorted(files):
+                path=root/name
+                if path.suffix!='.md' or self.excluded(path.relative_to(vault).as_posix()):continue
+                if path.is_symlink():
+                    try:resolve_note(vault,path.relative_to(vault).as_posix())
+                    except ValueError:continue
+                if stat.S_ISREG(path.stat().st_mode):yield path
+
+    def _stable_prepare(self,vault,path):
+        for attempt in range(2):
+            before=self._fingerprint(path)
+            prepared=self._prepare(vault,path)
+            after=self._fingerprint(path)
+            if before==after:return prepared,after
+        raise OSError('Source changed during indexing; retry on the next sync')
+
+    def _remember(self,rel,fingerprint,now):
+        self.conn.execute('INSERT OR REPLACE INTO file_state VALUES(?,?,?,?,?,?,?)',
+                          (rel,*fingerprint,now))
+
     def sync(self, vault: Path, *, force: bool = False) -> int:
+        vault=vault.resolve()
         if not vault.is_dir():
             raise FileNotFoundError(f"Vault unavailable: {vault}")
-        # One transaction: readers see either the old or the complete new index.
-        changed = 0
+        started=time.perf_counter();now=time.time();changed=0
+        stats={'checked':0,'hashed':0,'skipped':0,'removed':0,'chunks_written':0}
         with self.conn:
             self.conn.execute("BEGIN IMMEDIATE")
             self._bind(vault)
-            known = dict(self.conn.execute("SELECT path, version FROM files"))
-            seen = set()
-            for path in iter_markdown(vault):
-                rel = str(path.relative_to(vault))
-                if self.excluded(rel):
-                    continue
-                prepared = self._prepare(vault, path)
-                seen.add(rel)
-                if force or known.get(rel) != prepared[1]:
-                    changed += self._store(vault, prepared)
-            for rel in known.keys() - seen:
-                self.conn.execute("DELETE FROM chunks WHERE path=?", (rel,))
-                self.conn.execute("DELETE FROM files WHERE path=?", (rel,))
+            known=dict(self.conn.execute('SELECT path,version FROM files'))
+            states={r[0]:r[1:] for r in self.conn.execute('SELECT * FROM file_state')}
+            seen=set()
+            for path in self._candidates(vault):
+                rel=path.relative_to(vault).as_posix();fingerprint=self._fingerprint(path)
+                stats['checked']+=1;seen.add(rel);previous=states.get(rel)
+                if not force and rel in known and previous and tuple(previous[:5])==fingerprint and 0<=now-previous[5]<HASH_AUDIT_SECONDS:
+                    stats['skipped']+=1;continue
+                prepared,fingerprint=self._stable_prepare(vault,path);stats['hashed']+=1
+                if force or known.get(rel)!=prepared[1]:changed+=self._store(vault,prepared)
+                self._remember(rel,fingerprint,now)
+            for rel in known.keys()-seen:
+                self.conn.execute('DELETE FROM chunks WHERE path=?',(rel,))
+                self.conn.execute('DELETE FROM files WHERE path=?',(rel,))
+                self.conn.execute('DELETE FROM file_state WHERE path=?',(rel,))
+                stats['removed']+=1
+        stats['chunks_written']=changed;stats['duration_ms']=round((time.perf_counter()-started)*1000,2)
+        self.last_sync_stats=stats
         return changed
 
     def rebuild(self, vault: Path) -> int:
@@ -226,8 +273,12 @@ class Index:
             if self.excluded(rel) or not safe.exists():
                 self.conn.execute("DELETE FROM chunks WHERE path=?", (rel,))
                 self.conn.execute("DELETE FROM files WHERE path=?", (rel,))
+                self.conn.execute("DELETE FROM file_state WHERE path=?", (rel,))
                 return 0
-            return self._store(vault, self._prepare(vault, path))
+            prepared,fingerprint=self._stable_prepare(vault,path)
+            count=self._store(vault,prepared)
+            self._remember(rel,fingerprint,time.time())
+            return count
 
     def read_version(self, vault: Path, rel: str, version: str) -> str:
         resolve_note(vault, rel)

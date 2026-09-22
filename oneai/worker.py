@@ -58,6 +58,7 @@ def process(cfg: Config, tasks: Tasks) -> int:
     count = 0
     try:
         index.sync(cfg.vault_path)
+        atomic_write(cfg.state_path/'index-status.json',json.dumps({'at':time.time(),**index.last_sync_stats})+'\n')
         for row in tasks.db.execute("SELECT * FROM tasks WHERE status='pending' AND id NOT IN (SELECT task_id FROM mail_triage WHERE filtered=1) ORDER BY updated LIMIT 25").fetchall():
             # Conservative local baseline: no model API, no executable mailbox instructions.
             terms = re.findall(r'[A-Za-z][A-Za-z0-9_-]{2,}|[\u4e00-\u9fff]{3,8}',row['title'])[:8]

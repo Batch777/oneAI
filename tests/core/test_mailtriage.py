@@ -53,3 +53,11 @@ def test_only_recent_undeleted_mail_alerts(tmp_path):
             db.execute('INSERT INTO messages VALUES(?,?,?)',(key,json.dumps(m),deleted))
     items=recent_alerts(cfg,now)
     assert len(items)==1 and items[0]['code']=='123456'
+
+
+def test_standalone_code_after_verification_instructions():
+    body='Welcome\nUse the code below to verify your email and create your account. It expires in 10 minutes.\n001234\nEnter the code on the requested page.'
+    assert verification_hints('Your service verification code',body)['code']=='001234'
+    assert classify('Your service verification code',body).filtered
+    assert verification_hints('Your service verification code',body+'\n654321')['code'] is None
+    assert verification_hints('Annual report','Report for the following year\n2026')['code'] is None
