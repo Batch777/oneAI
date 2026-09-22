@@ -133,3 +133,49 @@ def test_received_date_backfill_and_sort_survive_edit(tmp_path):
     store=Tasks(cfg.state_path/'tasks.sqlite');store.backfill_mail_dates(cfg.state_path/'outlook.sqlite');store.db.close()
     assert Tasks.received_date('bad') is None
     assert Tasks.received_date('2026-01-01') is None
+
+
+def test_body_is_cached_before_slow_or_failing_attachments(tmp_path,monkeypatch):
+    cfg,task=fixture(tmp_path);calls=mock_graph(monkeypatch)
+    body=mailview.display(cfg,task,include_attachments=False)
+    assert len(calls)==1 and body['nodes'] and not body['attachments_loaded']
+    original_get=mailview.graph_get
+    def failing(auth,url,*args,**kwargs):
+        if '/attachments?' in url:raise OSError('offline')
+        return original_get(auth,url,*args,**kwargs)
+    monkeypatch.setattr(mailview,'graph_get',failing)
+    with pytest.raises(OSError):mailview.display(cfg,task)
+    assert mailview.display(cfg,task,include_attachments=False)==body and len(calls)==1
+    monkeypatch.setattr(mailview,'graph_get',original_get)
+    full=mailview.display(cfg,task)
+    assert full['attachments_loaded'] and len(calls)==2
+    assert mailview.display(cfg,task,include_attachments=False)==full
+
+
+def test_graph_lock_is_released_before_body_transfer(tmp_path,monkeypatch):
+    import fcntl
+    cfg,task=fixture(tmp_path)
+    class Auth:
+        def __init__(self,cfg):pass
+        def token(self):return 'test-token'
+    monkeypatch.setattr(mailview,'GraphAuth',Auth)
+    with mailview.graph_session(cfg) as auth:
+        with (cfg.state_path/'outlook.lock').open('a') as another:
+            fcntl.flock(another,fcntl.LOCK_EX|fcntl.LOCK_NB)
+            assert auth.token()=='test-token'
+
+
+def test_body_endpoint_does_not_wait_for_attachments_and_compresses(tmp_path,monkeypatch):
+    from fastapi.testclient import TestClient
+    from oneai.web.app import create_app
+    from oneai.web.auth import pair
+    cfg,task=fixture(tmp_path);calls=mock_graph(monkeypatch)
+    c=TestClient(create_app(cfg,origin='https://testserver'),base_url='https://testserver')
+    c.post('/api/login',headers={'origin':'https://testserver'},json={'code':pair(cfg)})
+    response=c.get('/api/tasks/'+task['id']+'/mail?include_attachments=false')
+    assert response.status_code==200 and not response.json()['attachments_loaded'] and len(calls)==1
+    response=c.get('/api/tasks/'+task['id']+'/attachments')
+    assert response.status_code==200 and len(response.json()['attachments'])==1 and len(calls)==2
+    cached=mailview._cache_path(cfg,'message/id');payload=json.loads(cached.read_text());payload['view']['raw']='Long original email text. '*2000;cached.write_text(json.dumps(payload))
+    response=c.get('/api/tasks/'+task['id']+'/mail?include_attachments=false',headers={'accept-encoding':'gzip'})
+    assert response.headers['content-encoding']=='gzip' and response.json()['raw'].startswith('Long original')

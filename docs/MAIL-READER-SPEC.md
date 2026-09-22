@@ -41,3 +41,15 @@ HTML 转为白名单语义节点，并通过 DOM textContent 渲染。移除脚�
 - [Thunderbird remote content policy](https://support.mozilla.org/kb/remote-content-in-messages)
 
 - [Pillow thumbnail 与图片解码限制](https://pillow.readthedocs.io/en/stable/reference/Image.html)
+
+## 验证码置顶与正文首屏优化（2026-09-22）
+
+验证码和账户验证入口位于详情最上方（返回按钮之后、邮件标题之前），由同步文本直接提取，不等待 Outlook 原文。
+
+客户端先请求 `GET /api/tasks/{id}/mail?include_attachments=false`，只读取并缓存邮件头、原文及语义排版；正文显示后再请求 `GET /api/tasks/{id}/attachments`。附件失败只影响附件区，可独立重试。原有 `/mail` 默认完整响应保持兼容。旧的完整缓存也可直接复用。
+
+token cache 锁仅在获取/刷新访问令牌期间持有，随后释放；正文及附件的网络传输不再占用该锁。响应超过 1000 字节启用 Gzip（客户端需支持），降低重复 HTML/语义节点的传输体积。原文和附件元数据仍使用事件版本缓存，不自动加载外部图片。
+
+新增测试证明：正文请求不调用附件 API；附件失败后正文缓存仍可读；网络传输期间授权锁已释放；大响应可压缩并正确解码。全量本地检查 158 个 Python、15 个 JS 测试通过。
+
+线上验收：17 个专项测试通过。取一封最近未缓存邮件单次测量：正文与格式 896ms、独立附件列表 675ms、正文缓存读取 1.36ms；不含客户端网络/渲染，不能作为所有邮件的延迟保证。公网 DOM 与 Mac 原生客户端均确认验证码在标题和邮件原文之前，Mac 原文还在加载时复制验证码按钮已可见；390px 视口无横向溢出。

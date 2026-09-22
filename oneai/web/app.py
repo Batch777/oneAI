@@ -11,6 +11,7 @@ from urllib.parse import urlsplit, quote
 from fastapi import FastAPI, Request, Response, HTTPException, Depends
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.concurrency import run_in_threadpool
+from starlette.middleware.gzip import GZipMiddleware
 from . import auth
 from ..config import Config
 from ..tasks import Tasks, digest
@@ -28,6 +29,7 @@ def create_app(cfg=None,origin=None,dev=False):
     if parsed.scheme!='https' and not (dev and parsed.hostname in ('127.0.0.1','localhost','testserver')):
         raise ValueError('HTTPS origin required')
     app=FastAPI(docs_url=None,redoc_url=None,openapi_url=None)
+    app.add_middleware(GZipMiddleware,minimum_size=1000,compresslevel=4)
     app.state.cfg=cfg
     initial=Tasks(cfg.state_path/'tasks.sqlite'); initial.backfill_mail_dates(cfg.state_path/'outlook.sqlite'); initial.db.close()
 
@@ -190,9 +192,15 @@ def create_app(cfg=None,origin=None,dev=False):
         except (OSError,TimeoutError):raise HTTPException(503,'mail_fetch_failed') from None
 
     @app.get('/api/tasks/{task_id}/mail')
-    def mail_display(task_id:str,user=Depends(authenticated)):
+    def mail_display(task_id:str,include_attachments:bool=True,user=Depends(authenticated)):
         from ..mailview import display
-        return mail_call(display,mail_task(task_id))
+        return mail_call(display,mail_task(task_id),include_attachments)
+
+    @app.get('/api/tasks/{task_id}/attachments')
+    def mail_attachments(task_id:str,user=Depends(authenticated)):
+        from ..mailview import display
+        view=mail_call(display,mail_task(task_id))
+        return {'attachments':view['attachments']}
 
     @app.get('/api/tasks/{task_id}/thumbnail')
     def mail_thumbnail(task_id:str,attachment_id:str,user=Depends(authenticated)):

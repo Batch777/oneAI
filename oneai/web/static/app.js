@@ -40,9 +40,10 @@ async function selectTask(id){
 function renderTask(){
  const t=state.task;if(!t)return;const isMail=t.origin?.startsWith('mail:');const box=$('#task-detail');box.className='task-detail';box.replaceChildren();
  const back=text('button','← 返回任务列表','back-button');back.onclick=()=>$('.task-layout').classList.remove('open');box.append(back);
- const top=text('div','','detail-top');top.append(text('span',t.mail_classification?.filtered?'已筛选':labels[t.status],`pill ${t.status}`),text('small','版本 '+t.revision));box.append(top,text('h2',t.title),text('p','一级 · 处理事项','level-label'));
- if(isMail)renderMailView(t,box);
  if(t.verification&&(t.verification.code||t.verification.links.length)){const hints=text('section','','verification-hints');hints.append(text('p','请核对发件人与用途；历史验证码可能已失效。','hint'));renderVerification(t.verification,hints);box.append(hints);}
+ const top=text('div','','detail-top');top.append(text('span',t.mail_classification?.filtered?'已筛选':labels[t.status],`pill ${t.status}`),text('small','版本 '+t.revision));box.append(top,text('h2',t.title),text('p','一级 · 处理事项','level-label'));
+
+ if(isMail)renderMailView(t,box);
  const tools=text('div','','detail-tools');const reviewable=['needs_review','reviewed'].includes(t.status);
  if(t.mail_classification?.filtered){const restore=text('button','恢复为待处理事项','primary');restore.onclick=()=>act('restore_mail');tools.append(restore);}
  if(reviewable){if(!t.reply_generated){const generate=text('button',isMail?'需要回复':'生成回复模板','primary');generate.onclick=()=>{if(confirm('生成待编辑的回复模板？生成后需重新核对，不会发送邮件。'))act('generate_reply');};tools.append(generate);}const edit=text('button','补充信息 / 编辑草稿','secondary');edit.onclick=editDraft;const approve=text('button',t.status==='reviewed'?'✓ 已核对':'确认草稿内容','secondary');approve.disabled=t.status==='reviewed';approve.onclick=()=>act('approve');const complete=text('button','归档事项','secondary');complete.onclick=()=>{if(confirm('将这项任务归档？归档不会发送邮件，也不代表事项已经办结。'))act('complete');};if(!isMail||t.reply_generated)tools.append(edit,approve);tools.append(complete);}

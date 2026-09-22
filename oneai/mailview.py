@@ -94,8 +94,11 @@ def graph_session(cfg):
     with (cfg.state_path/'outlook.lock').open('a') as lock:
         try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
         except BlockingIOError:raise RuntimeError('mail_sync_busy') from None
-        auth=GraphAuth(cfg)
-        yield auth
+        token=GraphAuth(cfg).token()
+    # The lock protects token-cache mutations, not long mail/attachment transfers.
+    class AccessToken:
+        def token(self):return token
+    yield AccessToken()
 
 
 def graph_get(auth,url,limit=4*1024*1024,binary=False):
@@ -112,15 +115,31 @@ def _cache_path(cfg,mid):
     return cfg.state_path/'mail-display'/ (hashlib.sha256(mid.encode()).hexdigest()+'.json')
 
 
-def display(cfg,task):
+def display(cfg,task,include_attachments=True):
     mid=message_for_task(cfg,task);path=_cache_path(cfg,mid)
     # The event identifies the synchronized message version; another event invalidates cache.
     if path.exists():
         cached=json.loads(path.read_text())
-        if cached.get('version')==2 and cached.get('event')==task['origin']:return cached['view']
+        if cached.get('version')==2 and cached.get('event')==task['origin']:
+            view=cached['view']
+            if not include_attachments or view.get('attachments_loaded',True):return view
+            return _with_attachments(cfg,task,mid,path,view)
     base=GRAPH+'/me/messages/'+quote(mid,safe='')
     with graph_session(cfg) as auth:
         message=graph_get(auth,base+'?$select=id,subject,from,toRecipients,ccRecipients,replyTo,receivedDateTime,body,webLink,hasAttachments')
+    body=message.get('body') or {'contentType':'text','content':task['input']}
+    view={'subject':message.get('subject',task['title']),'from':message.get('from'),
+          'to':message.get('toRecipients',[]),'cc':message.get('ccRecipients',[]),'reply_to':message.get('replyTo',[]),
+          'received_at':message.get('receivedDateTime'),'web_link':safe_link(message.get('webLink')),
+          'body_type':body.get('contentType','text'),'raw':body.get('content',''),
+          'nodes':readable(body),'attachments':[],'attachments_loaded':False,'remote_images':'blocked'}
+    atomic_write(path,json.dumps({'version':2,'event':task['origin'],'view':view},ensure_ascii=False))
+    return _with_attachments(cfg,task,mid,path,view) if include_attachments else view
+
+
+def _with_attachments(cfg,task,mid,path,view):
+    base=GRAPH+'/me/messages/'+quote(mid,safe='')
+    with graph_session(cfg) as auth:
         attachments=[];url=base+'/attachments?$select=id,name,contentType,size,isInline'
         # Do not use hasAttachments as the sole gate: inline-only messages report false.
         for _ in range(5):
@@ -134,12 +153,7 @@ def display(cfg,task):
         items.append({'id':a['id'],'name':a.get('name','附件'),'content_type':a.get('contentType','application/octet-stream'),
             'size':a.get('size',0),'inline':bool(a.get('isInline')),'kind':kind,
             'downloadable':kind in ('#microsoft.graph.fileAttachment','#microsoft.graph.itemAttachment') and a.get('size',0)<=MAX_ATTACHMENT})
-    body=message.get('body') or {'contentType':'text','content':task['input']}
-    view={'subject':message.get('subject',task['title']),'from':message.get('from'),
-          'to':message.get('toRecipients',[]),'cc':message.get('ccRecipients',[]),'reply_to':message.get('replyTo',[]),
-          'received_at':message.get('receivedDateTime'),'web_link':safe_link(message.get('webLink')),
-          'body_type':body.get('contentType','text'),'raw':body.get('content',''),
-          'nodes':readable(body),'attachments':items,'remote_images':'blocked'}
+    view={**view,'attachments':items,'attachments_loaded':True}
     atomic_write(path,json.dumps({'version':2,'event':task['origin'],'view':view},ensure_ascii=False))
     return view
 
