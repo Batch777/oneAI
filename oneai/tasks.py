@@ -13,7 +13,11 @@ def digest(text: str) -> str:
 
 
 class Tasks:
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, read_only: bool = False):
+        if read_only:
+            self.db = sqlite3.connect(path.resolve().as_uri()+"?mode=ro",uri=True,timeout=5)
+            self.db.row_factory = sqlite3.Row
+            return
         path.parent.mkdir(parents=True, exist_ok=True)
         self.db = sqlite3.connect(path, timeout=30)
         self.db.row_factory = sqlite3.Row
@@ -28,6 +32,9 @@ class Tasks:
         CREATE TABLE IF NOT EXISTS mail_triage(
           task_id TEXT PRIMARY KEY,category TEXT NOT NULL,confidence REAL NOT NULL,
           reason TEXT NOT NULL,source TEXT NOT NULL,filtered INTEGER NOT NULL,version TEXT NOT NULL);
+        CREATE INDEX IF NOT EXISTS tasks_status_updated ON tasks(status,updated DESC,id DESC);
+        CREATE INDEX IF NOT EXISTS tasks_updated ON tasks(updated DESC,id DESC);
+        CREATE INDEX IF NOT EXISTS mail_triage_filtered ON mail_triage(filtered,task_id);
         CREATE TABLE IF NOT EXISTS reply_requests(task_id TEXT PRIMARY KEY,revision INTEGER NOT NULL);
         CREATE TABLE IF NOT EXISTS receipts(id TEXT PRIMARY KEY, payload TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS history(

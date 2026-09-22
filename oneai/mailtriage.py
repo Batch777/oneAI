@@ -38,14 +38,15 @@ def classify(title,body,model=None):
         return Decision('promotion',.99,'标题包含促销标记，正文包含退订入口。','rule',True)
     if model:
         # Only a bounded, redacted excerpt is supplied, never credentials or tools.
-        excerpt=re.sub(r'(?<!\d)\d{4,8}(?!\d)','[数字已隐藏]',text[:5000])
+        excerpt=re.sub(r'https?://[^\s<>]+','[链接已隐藏]',text[:5000])
+        excerpt=re.sub(r'(?<!\d)\d{4,8}(?!\d)','[数字已隐藏]',excerpt)
         try:
             raw=model(excerpt)
             obj=json.loads(raw)
             category=obj['category']; confidence=obj['confidence']; reason=obj['reason']
             if category not in CATEGORIES or type(confidence) not in (float,int) or not math.isfinite(confidence) or not 0<=confidence<=1 or not isinstance(reason,str) or not reason.strip():
                 raise ValueError('Invalid classification')
-            return Decision(category,float(confidence),re.sub(r'(?<!\d)\d{4,8}(?!\d)','[数字已隐藏]',reason[:300]),'model',category in {'verification','promotion'} and confidence>=.98)
+            return Decision(category,float(confidence),re.sub(r'(?<!\d)\d{4,8}(?!\d)','[数字已隐藏]',reason[:300]),getattr(model,'provider','model'),category in {'verification','promotion'} and confidence>=.98)
         except Exception:
             return Decision('uncertain',0,'模型不可用或输出不符合要求，保留核对。','fallback')
     return Decision('uncertain',0,'规则不足以可靠分类，保留核对。','rule')
@@ -85,12 +86,15 @@ def main():
     import argparse
     from .config import Config
     from .tasks import Tasks
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--limit',type=int,default=20);p.add_argument('--ai',action='store_true');p.add_argument('--apply',action='store_true')
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--limit',type=int,default=20);p.add_argument('--ai',action='store_true');p.add_argument('--apply',action='store_true');p.add_argument('--provider',choices=['configured','jev'],default='configured')
     args=p.parse_args()
     if not 1<=args.limit<=100:p.error('limit must be 1..100')
     cfg=Config.load();store=Tasks(cfg.state_path/'tasks.sqlite')
     try:
-        model=configured_model(cfg) if args.ai else None
+        if args.provider=='jev':
+            from .jev import JevClassifier
+            model=JevClassifier()
+        else:model=configured_model(cfg) if args.ai else None
         rows=store.db.execute("SELECT * FROM tasks WHERE origin LIKE 'mail:%' ORDER BY updated DESC LIMIT ?",(args.limit,)).fetchall()
         for row in rows:
             d=classify(row['title'],row['input'],model)

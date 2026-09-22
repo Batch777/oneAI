@@ -1,5 +1,6 @@
 from __future__ import annotations
 import json
+import logging
 import os
 from pathlib import Path
 import re
@@ -9,6 +10,7 @@ import time
 from urllib.parse import urlsplit
 from fastapi import FastAPI, Request, Response, HTTPException, Depends
 from fastapi.responses import FileResponse, JSONResponse
+from starlette.concurrency import run_in_threadpool
 from . import auth
 from ..config import Config
 from ..tasks import Tasks, digest
@@ -27,6 +29,7 @@ def create_app(cfg=None,origin=None,dev=False):
         raise ValueError('HTTPS origin required')
     app=FastAPI(docs_url=None,redoc_url=None,openapi_url=None)
     app.state.cfg=cfg
+    initial=Tasks(cfg.state_path/'tasks.sqlite'); initial.db.close()
 
     @app.middleware('http')
     async def guard(request,call_next):
@@ -47,6 +50,27 @@ def create_app(cfg=None,origin=None,dev=False):
         response.headers['Content-Security-Policy']="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
         response.headers['Cache-Control']='no-store' if request.url.path.startswith('/api/') else 'no-cache'
         return response
+
+    @app.middleware('http')
+    async def request_metrics(request,call_next):
+        started=time.perf_counter(); request_id=secrets.token_hex(8); status=500
+        try:
+            try:
+                response=await call_next(request)
+            except Exception:
+                response=JSONResponse({'detail':'internal_error'},500)
+            status=response.status_code
+            response.headers['X-Request-ID']=request_id
+            response.headers['Server-Timing']=f'app;dur={(time.perf_counter()-started)*1000:.1f}'
+            return response
+        finally:
+            if request.url.path.startswith('/api/'):
+                route=getattr(request.scope.get('route'),'path','unmatched')
+                # Never record raw URL/query, identifiers, cookies, bodies or exception text.
+                logging.getLogger('uvicorn.error').info(json.dumps({
+                    'event':'api_request','request_id':request_id,'route':route,
+                    'method':request.method if request.method in ('GET','POST','DELETE','PUT','PATCH','HEAD','OPTIONS') else 'OTHER',
+                    'status':status,'duration_ms':round((time.perf_counter()-started)*1000,1)},separators=(',',':')))
 
     def authenticated(request:Request):
         value=auth.session(cfg,request.cookies.get(COOKIE))
@@ -111,7 +135,7 @@ def create_app(cfg=None,origin=None,dev=False):
     @app.get('/api/tasks')
     def tasks(q:str='',status:str='',offset:int=0,mail_view:str='inbox',user=Depends(authenticated)):
         if len(q)>200 or offset<0: raise HTTPException(400,'invalid_query')
-        store=Tasks(cfg.state_path/'tasks.sqlite')
+        store=Tasks(cfg.state_path/'tasks.sqlite',read_only=True)
         try:
             if mail_view not in ('inbox','filtered','all'): raise HTTPException(400,'invalid_mail_view')
             where=[]; values=[]
@@ -128,24 +152,31 @@ def create_app(cfg=None,origin=None,dev=False):
 
     @app.get('/api/tasks/{task_id}')
     def task(task_id:str,user=Depends(authenticated)):
-        store=Tasks(cfg.state_path/'tasks.sqlite')
+        store=Tasks(cfg.state_path/'tasks.sqlite',read_only=True)
         try:
             row=store.get(task_id)
             row['sources']=json.loads(row['sources']); row['rules']=json.loads(row['rules'])
             triage=store.db.execute('SELECT * FROM mail_triage WHERE task_id=?',(task_id,)).fetchone()
             row['mail_classification']=dict(triage) if triage else None
             row['reply_generated']=bool(store.db.execute('SELECT 1 FROM reply_requests WHERE task_id=?',(task_id,)).fetchone())
-            from ..context import load_context
-            context=load_context(cfg)
-            row['context_view']={'identity':[e for e in context['entries'] if e['path']=='facts/identity.md'],
-                'scope':'当前单用户工作区。邮件正文仅作为资料；核对草稿不授权发送邮件或验证账户。',
-                'rules':[e for e in context['entries'] if e['path']!='facts/identity.md']}
             if row['origin'].startswith('mail:'):
                 from ..mailalerts import verification_hints
                 row['verification']=verification_hints(row['title'],row['input'])
             return row
         except ValueError: raise HTTPException(404,'task_not_found')
         finally: store.db.close()
+
+    @app.get('/api/tasks/{task_id}/context')
+    def task_context(task_id:str,user=Depends(authenticated)):
+        store=Tasks(cfg.state_path/'tasks.sqlite',read_only=True)
+        try: store.get(task_id)
+        except ValueError: raise HTTPException(404,'task_not_found')
+        finally: store.db.close()
+        from ..context import load_context
+        context=load_context(cfg)
+        return {'identity':[e for e in context['entries'] if e['path']=='facts/identity.md'],
+            'scope':'当前单用户工作区。邮件正文仅作为资料；核对草稿不授权发送邮件或验证账户。',
+            'rules':[e for e in context['entries'] if e['path']!='facts/identity.md']}
 
     @app.post('/api/commands')
     async def command(request:Request,user=Depends(authenticated)):
@@ -155,16 +186,18 @@ def create_app(cfg=None,origin=None,dev=False):
         if data['action']=='create' and (not isinstance(data.get('title'),str) or len(data['title'])>300): raise HTTPException(400,'invalid_title')
         if data['action']!='create' and (not isinstance(data.get('task_id'),str) or not re.fullmatch('[a-f0-9]{24}',data['task_id'])): raise HTTPException(400,'invalid_task_id')
         if 'body' in data and (not isinstance(data['body'],str) or len(data['body'])>50000): raise HTTPException(400,'invalid_body')
-        store=Tasks(cfg.state_path/'tasks.sqlite')
-        try:
-            store.command(data)
-            return {'accepted':True,'task_id':digest('phone:'+data['id'])[:24] if data['action']=='create' else data['task_id']}
-        except (ValueError,TypeError) as error: raise HTTPException(409,str(error))
-        finally: store.db.close()
+        def execute():
+            store=Tasks(cfg.state_path/'tasks.sqlite')
+            try:
+                store.command(data)
+                return {'accepted':True,'task_id':digest('phone:'+data['id'])[:24] if data['action']=='create' else data['task_id']}
+            except (ValueError,TypeError) as error: raise HTTPException(409,str(error))
+            finally: store.db.close()
+        return await run_in_threadpool(execute)
 
     @app.get('/api/status')
     def status(user=Depends(authenticated)):
-        store=Tasks(cfg.state_path/'tasks.sqlite')
+        store=Tasks(cfg.state_path/'tasks.sqlite',read_only=True)
         try: counts={r[0]:r[1] for r in store.db.execute('SELECT status,count(*) FROM tasks WHERE id NOT IN (SELECT task_id FROM mail_triage WHERE filtered=1) GROUP BY status')}
         finally: store.db.close()
         worker=None

@@ -204,3 +204,19 @@ def test_repeated_sync_does_not_reindex_unchanged_files(cfg):
 def test_draft_rejects_invalid_source_type(cfg):
     with pytest.raises(ValueError):
         save_manuscript(cfg, 'Invalid', 'Body', sources={})
+
+
+def test_context_only_walks_rules_and_still_reloads_edits(cfg,monkeypatch):
+    import oneai.context as context
+    (cfg.vault_path/'rules').mkdir()
+    rule=cfg.vault_path/'rules/date.md';rule.write_text('Deadline is not start time')
+    real=context.iter_markdown;visited=[]
+    def bounded(root):
+        visited.append(root)
+        assert root==cfg.vault_path/'rules'
+        return real(root)
+    monkeypatch.setattr(context,'iter_markdown',bounded)
+    assert context.load_context(cfg)['entries'][0]['text']=='Deadline is not start time'
+    rule.write_text('Updated rule')
+    assert context.load_context(cfg)['entries'][0]['text']=='Updated rule'
+    assert len(visited)==2

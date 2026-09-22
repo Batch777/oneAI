@@ -135,7 +135,8 @@ def test_reply_generation_is_explicit_and_revision_safe(client):
     assert after['revision']==before['revision']+1
     assert c.post('/api/commands',json={**command,'id':'stale-device'}).status_code==409
     assert c.post('/api/commands',json={**command,'id':'duplicate','revision':after['revision']}).status_code==409
-    assert 'identity' in after['context_view']
+    assert 'context_view' not in after
+    assert 'identity' in c.get('/api/tasks/'+tid+'/context').json()
 
 
 def test_push_api_boundaries_and_logout(client):
@@ -158,3 +159,55 @@ def test_push_api_boundaries_and_logout(client):
     with push.store(cfg) as db:
         assert db.execute('SELECT count(*) FROM push_subscriptions').fetchone()[0]==0
         assert db.execute('SELECT status FROM push_outbox').fetchone()[0]=='cancelled'
+
+
+def test_task_first_view_does_not_load_vault_context(client,monkeypatch):
+    import oneai.context
+    cfg,c=client;login(cfg,c)
+    tid=c.post('/api/commands',json={'id':'fast-task','action':'create','title':'speed','body':'body'}).json()['task_id']
+    def fail(_):raise AssertionError('detail must not scan context')
+    monkeypatch.setattr(oneai.context,'load_context',fail)
+    response=c.get('/api/tasks/'+tid)
+    assert response.status_code==200 and 'context_view' not in response.json()
+    assert 'app;dur=' in response.headers['server-timing']
+
+
+def test_api_logs_use_route_template_without_private_data(client,caplog):
+    import logging,json
+    cfg,c=client;login(cfg,c)
+    with caplog.at_level(logging.INFO,logger='uvicorn.error'):
+        response=c.get('/api/tasks/private-id?token=secret-token')
+    records=[json.loads(r.message) for r in caplog.records if r.name=='uvicorn.error' and r.message.startswith('{')]
+    event=records[-1]
+    assert event['route']=='/api/tasks/{task_id}' and event['status']==404
+    assert event['request_id']==response.headers['x-request-id']
+    assert event['duration_ms']>=0
+    assert 'private-id' not in caplog.text and 'secret-token' not in caplog.text
+
+
+def test_internal_errors_return_trace_id_without_logging_secret(client,caplog):
+    import logging
+    cfg,c=client
+    @c.app.get('/api/test-failure')
+    def failure():raise RuntimeError('private mailbox content 654321')
+    with caplog.at_level(logging.INFO,logger='uvicorn.error'):
+        result=c.get('/api/test-failure')
+    assert result.status_code==500 and result.json()['detail']=='internal_error'
+    assert result.headers['x-request-id']
+    assert '654321' not in caplog.text and 'private mailbox' not in caplog.text
+
+
+def test_two_devices_cannot_approve_a_superseded_reply(client):
+    cfg,phone=client;login(cfg,phone)
+    desktop=TestClient(phone.app,base_url='https://testserver');desktop.headers['origin']='https://testserver';login(cfg,desktop)
+    task_id=phone.post('/api/commands',json={'id':'two-device-create','action':'create','title':'设备一致性','body':'核对研究安排'}).json()['task_id']
+    tick(cfg)
+    old=desktop.get('/api/tasks/'+task_id).json()
+    generated=phone.post('/api/commands',json={'id':'phone-reply','action':'generate_reply','task_id':task_id,'revision':old['revision']})
+    assert generated.status_code==200
+    stale=desktop.post('/api/commands',json={'id':'desktop-stale-approve','action':'approve','task_id':task_id,'revision':old['revision']})
+    assert stale.status_code==409
+    latest=desktop.get('/api/tasks/'+task_id).json()
+    assert latest['revision']==old['revision']+1 and latest['approved_revision'] is None
+    assert desktop.post('/api/commands',json={'id':'desktop-new-approve','action':'approve','task_id':task_id,'revision':latest['revision']}).status_code==200
+    assert phone.get('/api/tasks/'+task_id).json()['status']=='reviewed'

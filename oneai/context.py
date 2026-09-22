@@ -10,8 +10,9 @@ def load_context(cfg: Config) -> dict:
     entries = []
     identity = resolve_note(cfg.vault_path, "facts/identity.md")
     paths = [identity] if identity.exists() else []
-    paths.extend(p for p in iter_markdown(cfg.vault_path)
-                 if p.relative_to(cfg.vault_path).parts[0] == "rules")
+    rules = cfg.vault_path / "rules"
+    if rules.exists() and rules.resolve().is_relative_to(cfg.vault_path.resolve()):
+        paths.extend(iter_markdown(rules))
     for path in paths:
         raw = path.read_text(encoding="utf-8")
         entries.append({"path": str(path.resolve().relative_to(cfg.vault_path.resolve())),
