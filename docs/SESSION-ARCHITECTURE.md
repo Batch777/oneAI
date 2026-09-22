@@ -1,6 +1,6 @@
 # oneAI：会话、主机与多端控制
 
-状态：2026-09-21，可运行的首版；本地中转与 Simulator 已验收，尚未启用公网会话服务。
+状态更新：2026-09-22。首版本地中转与 Simulator 已验收，前续工作已接入公网会话服务；本轮未重新审计线上状态。新增注册、独占租约与自迭代发布设计见 [SELF-EVOLUTION-ARCHITECTURE.md](SELF-EVOLUTION-ARCHITECTURE.md)，尚未实现。
 
 oneAI 管理会话的控制权、消息记录和设备连接；Codex / pi 负责执行。手机、Mac、TUI 使用同一套 API。pi extension 保留为可选的个人资料工具，不再承担应用主体。
 
