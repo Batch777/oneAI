@@ -40,3 +40,5 @@ flowchart TB
 当前部署脚本仍有原位覆盖、人工验证和备份步骤，尚未建立 GitHub 制品到生产的可信自动发布链路。自迭代前优先补会话所有权、注册入口、发布原子切换与回滚。
 
 详细文档：[客户端](CLIENT-ARCHITECTURE.md)、[会话](SESSION-ARCHITECTURE.md)、[下一版提案与评审](SELF-EVOLUTION-ARCHITECTURE.md)。配置仍以 `ONEAI_VAULT_PATH`、`ONEAI_STATE_PATH` 为主；模型账户、Outlook/Jev token 和 Host 私有配置不进入 Git。
+
+模块化插件设计见 [PLUGIN-SPEC.md](PLUGIN-SPEC.md)：解析、检索、分类、运行时与设备操作通过受控接口扩展。Plugin Broker/Runner 尚未实现，现有 Adapter 与 Jev 代码仍按当前主路径运行。

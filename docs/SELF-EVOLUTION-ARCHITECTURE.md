@@ -4,7 +4,7 @@
 
 ## 1. 结论
 
-保留 Python 模块化单体、SQLite、云端任务权威状态和出站连接的 Host。Codex / pi 是可替换的执行器，extension 是工具适配层。新增 Session Registry、受约束的改进任务和独立发布器，不再把 pi 扩展当作应用核心。
+保留 Python 模块化单体、SQLite、云端任务权威状态和出站连接的 Host。Codex / pi 是可替换的执行器，extension 是工具适配层。新增 Session Registry、受约束的改进任务和独立发布器，不再把 pi 扩展当作应用核心。模块化扩展通过 Plugin Broker 接入，接口、权限与生命周期见 [Plugin API v1](PLUGIN-SPEC.md)；插件不能替代核心授权与发布策略。
 
 “自迭代”分成两件事：执行器提出并验证改动；发布器依据固定策略安装可信版本。执行器只能修改隔离工作区、提交分支和 PR，不能直接修改生产目录、生产凭证或自己的发布门槛。GitHub 是实现与发布来源；邮箱、论文、任务数据库和凭证不进入代码仓库。
 
@@ -35,6 +35,9 @@ flowchart TB
     API --> REG[Session Registry · 租约 / 审批 / 事件]
     API --> TASK[任务 / 邮件 / 检索]
     TASK --> DATA[(私有资料与业务数据库)]
+    TASK --> PLUG[Plugin Broker · 接口 / 授权 / 配额]
+    PLUG --> RUNNER[独立 Plugin Runner · 分类 / 解析 / 检索]
+    PLUG <-->|Host 出站通道| HOST
     REG <-->|出站连接| HOST[Host Agent · 工作区与能力白名单]
     HOST --> CODEX[Codex App Server]
     HOST --> PI[pi RPC]
@@ -97,6 +100,8 @@ oneAI 的 session_id 与 provider ID 分离。Codex 恢复使用 thread.id；额
 
 ### 扩展边界
 
+应用插件统一使用 [Plugin API v1](PLUGIN-SPEC.md) 的 manifest、版本化接口与独立 Runner。首批扩展点为论文解析、检索、邮件分类、运行时适配、自定义设备 action 和声明式界面。主入口为“设置 → 扩展”；日常贡献显示在对应邮件、资料与会话界面。插件包是 GitHub 可信发布链路的一类制品，不能通过升级自行扩大权限。
+
 Adapter 提供 `discover/create/resume/fork/prompt/interrupt/close/approve/events`，每个能力显式声明 supported 或 unsupported。核心不依赖 pi extension ABI，也不模拟 Codex 桌面点击。
 
 消息采用有版本的内容块：text、image、file、diff、tool、approval。图片通过 artifact 上传、缩略图与授权读取；事件中放引用而非大段 base64。后续自定义设备作为独立 capability provider，使用类型化 action 与设备白名单，不能把所有设备操作都转成任意 shell。
@@ -127,6 +132,7 @@ Web 和云端可走这一发布流程；iOS/Mac 原生壳升级仍需要签名�
 | A：稳住会话 | epoch、状态机、注册事务、统一 CI | 旧 idle 不覆盖新 turn；双 Host 克隆只有一个 writer；断线不重放写操作 |
 | B：注册入口 | Host 连接向导、会话新建/导入、撤销 | 手机/Mac/TUI 同一会话；过期/重放/撤销凭证失败；观察会话禁止发送 |
 | C：开发工作区 | 托管 Codex、pi 开发 profile、审批与 artifact | 两端同时批准只有一次生效；沙箱不能读生产凭证；图片/文件按 scope 隔离 |
+| C2：插件基础 | Registry/Broker、隔离 Runner、版本化 schema、Jev/parser 示例 | 崩溃隔离、越权拒绝、超时不重复副作用、三端卡片回退；完整更新需 D 阶段 |
 | D：可信发布 | 制品、独立 Updater、回滚、版本接口 | 篡改或错误工作流拒绝；断电恢复；失败自动回退；新收邮件不丢；只有一个 worker |
 | E：有限自迭代 | 候选、PR、预算、冻结评测、结果归档 | 一个真实缺陷走完全链路；恶意邮件不能触发发布；超预算停止；核心策略改动必须审阅 |
 
