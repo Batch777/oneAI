@@ -240,3 +240,28 @@ def test_jev_evidence_is_available_in_task_detail(client):
     result=c.get('/api/tasks/'+tid).json()['mail_classification']
     assert result['source']=='user' and not result['filtered'] and result['evidence']==evidence
     store.db.close()
+
+
+def test_admin_selected_pair_retains_single_use_expiry_and_limits(client,monkeypatch):
+    cfg,c=client
+    monkeypatch.setattr(auth.time,'time',lambda:1000)
+    old=auth.pair(cfg,code='4826')
+    assert auth.pair(cfg,code='7319')=='7319'
+    assert c.post('/api/login',json={'code':old}).status_code==401
+    assert c.post('/api/login',json={'code':'7319'}).status_code==200
+    assert c.post('/api/login',json={'code':'7319'}).status_code==401
+    auth.pair(cfg,code='7319')
+    monkeypatch.setattr(auth.time,'time',lambda:1601)
+    assert c.post('/api/login',json={'code':'7319'}).status_code==401
+    for _ in range(4):
+        assert c.post('/api/login',json={'code':'invalid'}).status_code==401
+    auth.pair(cfg,code='7319')
+    assert c.post('/api/login',json={'code':'7319'}).status_code==429
+
+
+@pytest.mark.parametrize('code',['123','12345','１２３４','abcd','',1234])
+def test_invalid_admin_code_does_not_replace_active_code(client,code):
+    cfg,c=client
+    auth.pair(cfg,code='7319')
+    with pytest.raises(ValueError,match='four_digits'): auth.pair(cfg,code=code)
+    assert c.post('/api/login',json={'code':'7319'}).status_code==200

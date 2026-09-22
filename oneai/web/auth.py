@@ -23,13 +23,17 @@ def database(cfg):
     finally: db.close()
 
 
-def pair(cfg):
+def pair(cfg, code=None):
+    # Administrator-only override; retain expiry, single use and attempt budgets.
+    if code is not None and (not isinstance(code, str) or len(code) != 4 or not code.isascii() or not code.isdigit()):
+        raise ValueError("pair_code_must_be_four_digits")
     with database(cfg) as db:
         db.execute('BEGIN IMMEDIATE')
         previous={r[0] for r in db.execute('SELECT hash FROM codes')}
-        while True:
-            code=''.join(secrets.choice('0123456789') for _ in range(4))
-            if digest(code) not in previous: break
+        if code is None:
+            while True:
+                code=''.join(secrets.choice('0123456789') for _ in range(4))
+                if digest(code) not in previous: break
         # One short code at a time; generating another replaces the previous one.
         db.execute('DELETE FROM codes')
         db.execute('INSERT INTO codes VALUES(?,?)',(digest(code),time.time()+600))
