@@ -77,3 +77,12 @@ python -m oneai.plugins.runner serve \
 参考 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 及其 [架构说明](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/architecture.md)：它采用 Cordis 插件体系，将 session 事件、tools、agent 与 loop 分开。借鉴其生命周期与事件边界，当前不替换已经验证的 Codex app-server / pi RPC；该项目仍为 developer preview，直接整体迁移会扩大维护面。
 
 优先路线：① action 契约与故障隔离（本次）；②统一 Artifact/事件与模型工具桥接；③把解析、检索、分类等逐步迁入 registry；④多租户操作系统隔离、细粒度授权、签名分发；⑤影子测试、灰度及可回滚自更新。**修改自身代码与无人值守发布是两项权限**。设置中的“检查更新”仍只检查已发布 Web 界面，只有用户确认才重载。
+
+## 本次验收记录
+
+- 主路径 Python：189 通过；前端 Node：28 通过（含后台请求未结束时切换会话的回归测试）。Linux 上插件、会话、Web 相关 55 项通过。
+- 公网发布代码 `3b90a75`；Git 分支 `codex/personal-assistant-foundation`，同步至 Linux 主仓库与 `codex/mobile-self-development` 工作区。
+- Linux `oneai-plugin-runner` 已启用开机常驻；首包摘要 `558e7bcbb8ece4b9559ad2dc9379eaa6fbc1302c342bf61b1b8ed530e2309369`。真实浏览器调用返回该工作区分支、0 个已跟踪文件改动及最近三次提交。
+- 现有 Codex/pi 会话恢复后，分别通过 shell 在 `/tmp/oneai-codex-full-tools-check.txt` 与 `/tmp/oneai-pi-full-tools-check.txt` 写入并读回验收标记；无项目文件变更。
+- 浏览器 390px 与 1690px 两种宽度检查无横向溢出；测试通知按钮不存在；更新卡片位于扩展下方；“检查更新”返回最新版本。Simulator 已重新加载公网新版并确认设置入口及测试通知按钮移除；下方卡片完整布局通过手机尺寸浏览器验证。
+- APNs 与 Apple 团队能力未在本次变更；本次也没有新增原生二进制，已安装 App 重载网页即可获得更新。
