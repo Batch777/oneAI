@@ -31,22 +31,64 @@ async function loadSessions(){
     if(hostSelect.dataset.options!==signature){hostSelect.dataset.options=signature;hostSelect.replaceChildren();for(const host of hostOptions){const o=text('option',host.name+(host.online?' · 在线':' · 离线'));o.value=host.id;hostSelect.append(o);}}
     if(hosts.items.some(h=>h.id===before))hostSelect.value=before;
     refreshSessionCapabilities();
-    const list=document.querySelector('#session-list');list.replaceChildren();
-    for(const row of sessions.items){
-      const button=text('button','','task-row'+(row.id===sessionView.selected?' selected':''));
-      const host=hosts.items.find(h=>h.id===row.host_id);
-      button.append(text('h3',row.title),text('small',row.provider+' · '+(host?.name||'主机')+' · '+(host?.online?sessionLabels[row.state]:'执行主机离线')));
-      button.onclick=()=>selectSession(row.id);list.append(button);
-    }
-    if(!sessions.items.length)list.append(text('p','选择执行主机，开始一段新会话。','hint'));
+    renderSessionList();
     const noHosts='尚未连接执行主机。请先在服务器注册主机，再运行 oneAI 会话服务。';
     if(!hosts.items.length)sessionNotice(noHosts);
     else if(document.querySelector('#session-notice').textContent===noHosts)sessionNotice('执行主机已连接，可以选择会话继续。');
-    if(sessionView.selected&&!sessions.items.some(x=>x.id===sessionView.selected)){sessionView.selected=null;sessionView.rendered=null;localStorage.removeItem('oneai.session.selected');document.querySelector('#session-title').textContent='选择会话';document.querySelector('#session-transcript').replaceChildren();document.querySelector('#session-send').disabled=true;document.querySelector('#session-stop').disabled=true;document.querySelector('#session-close').disabled=true;document.querySelector('#session-controls')?.setAttribute('hidden','');}
+    if(sessionView.selected&&!sessions.items.some(x=>x.id===sessionView.selected))clearSessionSelection();
+    else if(!sessionView.selected)clearSessionSelection(false);
     if(sessionView.selected)await renderSession();
     document.querySelector('#session-retry').hidden=!localStorage.getItem('oneai.session.pending');
   }catch(error){sessionNotice(error.message==='sessions_not_enabled'?'会话控制尚未启用。管理员启用并连接执行主机后即可使用。':error.message);}
   finally{sessionView.loading=false;}
+}
+function updateSessionSelection(){
+  for(const button of document.querySelector('#session-list').children){
+    if(!button.dataset.sessionId)continue;
+    const selected=button.dataset.sessionId===sessionView.selected;
+    button.classList.toggle('selected',selected);
+    button.setAttribute('aria-pressed',String(selected));
+  }
+}
+function renderSessionList(){
+  const list=document.querySelector('#session-list');
+  const existing=new Map([...list.children].filter(x=>x.dataset.sessionId).map(x=>[x.dataset.sessionId,x]));
+  if(!sessionView.items.length){
+    if(existing.size||!list.children.length)list.replaceChildren(text('p','选择执行主机，开始一段新会话。','hint'));
+    return;
+  }
+  for(const child of [...list.children])if(!child.dataset.sessionId)child.remove();
+  sessionView.items.forEach((row,index)=>{
+    let button=existing.get(row.id);
+    if(!button){button=text('button','','task-row');button.type='button';button.dataset.sessionId=row.id;
+      button.append(text('h3',''),text('small',''));button.onclick=()=>selectSession(row.id);}
+    const host=sessionView.hosts.find(h=>h.id===row.host_id);
+    const values=[row.title,row.provider+' · '+(host?.name||'主机')+' · '+(host?.online?sessionLabels[row.state]:'执行主机离线')];
+    values.forEach((value,i)=>{if(button.children[i].textContent!==value)button.children[i].textContent=value;});
+    if(list.children[index]!==button)list.insertBefore(button,list.children[index]||null);
+    existing.delete(row.id);
+  });
+  for(const button of existing.values())button.remove();
+  updateSessionSelection();
+}
+function setSessionListExpanded(expanded){
+  sessionPage.classList.toggle('session-list-expanded',expanded);
+  const button=document.querySelector('#session-switch');
+  button.setAttribute('aria-expanded',String(expanded));
+  button.textContent=expanded?'收起会话列表':'切换会话';
+}
+function clearSessionSelection(resetExpanded=true){
+  sessionView.selected=null;sessionView.rendered=null;sessionView.cursor=0;sessionView.renderSeq++;
+  localStorage.removeItem('oneai.session.selected');sessionPage.classList.remove('has-session');
+  if(resetExpanded)setSessionListExpanded(false);
+  updateSessionSelection();
+  document.querySelector('#session-title').textContent='选择会话';
+  document.querySelector('#session-state').textContent='';
+  document.querySelector('#session-transcript').replaceChildren();
+  document.querySelector('#session-message').value='';
+  document.querySelector('#session-message').disabled=true;
+  for(const id of ['session-send','session-stop','session-close'])document.querySelector('#'+id).disabled=true;
+  document.querySelector('#session-controls')?.setAttribute('hidden','');
 }
 function refreshSessionCapabilities(){
   const host=sessionView.hosts.find(h=>h.id===document.querySelector('#session-host').value);
@@ -59,12 +101,17 @@ function refreshSessionCapabilities(){
   if(typeof refreshSessionModelOptions==='function')refreshSessionModelOptions();
 }
 function selectSession(id){
-  sessionView.selected=id;sessionView.cursor=0;sessionView.rendered=null;
-  localStorage.setItem('oneai.session.selected',id);
-  document.querySelector('#session-transcript').replaceChildren();
-  document.querySelector('#session-message').value=localStorage.getItem('oneai.session.draft.'+id)||'';
-  // Switch visible identity immediately, even during a background refresh.
-  renderSession().catch(error=>sessionNotice(error.message));
+  const expanded=sessionPage.classList.contains('session-list-expanded');
+  setSessionListExpanded(false);
+  if(sessionView.selected!==id||sessionView.rendered!==id){
+    sessionView.selected=id;sessionView.cursor=0;sessionView.rendered=null;
+    localStorage.setItem('oneai.session.selected',id);
+    document.querySelector('#session-transcript').replaceChildren();
+    document.querySelector('#session-message').value=localStorage.getItem('oneai.session.draft.'+id)||'';
+    updateSessionSelection();
+    renderSession();
+  }
+  if(expanded){const heading=document.querySelector('#session-title');heading.focus({preventScroll:true});heading.scrollIntoView({block:'nearest'});}
 }
 async function renderSession(){
   const row=sessionView.items.find(s=>s.id===sessionView.selected);if(!row)return;
@@ -85,7 +132,9 @@ async function renderSession(){
   }
   if(typeof renderSessionControls==='function')renderSessionControls(row);
   const id=row.id,sequence=++sessionView.renderSeq;
-  const result=await api('/agent/sessions/'+id+'/events?after='+sessionView.cursor);
+  let result;
+  try{result=await api('/agent/sessions/'+id+'/events?after='+sessionView.cursor);}
+  catch(error){if(sessionView.selected===id&&sessionView.renderSeq===sequence)sessionNotice(error.message);return;}
   if(sessionView.selected!==id||sessionView.renderSeq!==sequence)return;
   const box=document.querySelector('#session-transcript');
   const atBottom=box.scrollTop+box.clientHeight>=box.scrollHeight-70;
@@ -109,6 +158,11 @@ async function renderSession(){
   sessionView.cursor=result.cursor;
   if(atBottom)box.scrollTop=box.scrollHeight;
 }
+document.querySelector('#session-switch').onclick=()=>{
+  const expanded=!sessionPage.classList.contains('session-list-expanded');
+  setSessionListExpanded(expanded);
+  if(expanded){const list=document.querySelector('#session-list');list.focus({preventScroll:true});list.scrollIntoView({block:'start'});}
+};
 document.querySelector('#session-host').onchange=refreshSessionCapabilities;
 document.querySelector('#session-new-form').onsubmit=async event=>{
   event.preventDefault();const button=document.querySelector('#session-create');button.disabled=true;
