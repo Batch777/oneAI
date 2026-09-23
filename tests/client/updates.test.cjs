@@ -21,3 +21,10 @@ test('hidden page does not check and concurrent checks deduplicate',async()=>{
  const x=setup();await flush();const before=x.state.calls;x.document.hidden=true;await x.refresh.click();assert.equal(x.state.calls,before);
  x.document.hidden=false;await Promise.all([x.refresh.click(),x.refresh.click()]);assert.equal(x.state.calls,before+1);
 });
+test('settings check button gives feedback without reloading',async()=>{
+ const x=setup();await flush();
+ assert.equal(x.nodes[3].textContent,'检查更新');
+ x.state.version='b'.repeat(40);await x.nodes[3].click();
+ assert.match(x.nodes[4].textContent,/新版已部署/);
+ assert.equal(x.nodes[3].disabled,false);assert.equal(x.state.reloads,0);
+});
