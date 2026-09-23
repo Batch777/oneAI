@@ -37,3 +37,8 @@ html,body,body *{touch-action:manipulation}
 .list-status.is-loading::before{content:"";display:inline-block;width:14px;height:14px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:list-spin .8s linear infinite;vertical-align:middle}
 @keyframes list-spin{to{transform:rotate(360deg)}}
 @media(prefers-reduced-motion:reduce){.list-status.is-loading::before{animation:none}}
+
+.pull-refresh{position:fixed;top:calc(env(safe-area-inset-top,0px) + 65px);left:50%;transform:translateX(-50%);z-index:30;padding:10px 18px;border:1px solid var(--line);border-radius:24px;background:var(--surface);box-shadow:0 3px 14px #0001;color:var(--muted);font-size:12px;pointer-events:none}
+.pull-refresh.is-loading::before{content:"";display:inline-block;width:12px;height:12px;margin-right:8px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:list-spin .8s linear infinite;vertical-align:middle}
+@media(max-width:760px){html{overscroll-behavior-y:none}}
+@media(prefers-reduced-motion:reduce){.pull-refresh.is-loading::before{animation:none}}

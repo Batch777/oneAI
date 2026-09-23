@@ -2,21 +2,21 @@
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const state={csrf:'',device:'',filter:'needs_review',query:'',offset:0,items:[],task:null,editing:false,page:'tasks',online:false,mailView:'inbox'};
 const labels={pending:'正在准备',needs_review:'待核对',reviewed:'已核对',completed:'已归档'};
-let timer,searchTimer,toastTimer;
+let searchTimer,toastTimer;
 function text(tag,value,cls){const el=document.createElement(tag);el.textContent=value;if(cls)el.className=cls;return el;}
 function announce(message){const box=$('#toast');box.textContent=message;box.hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>box.hidden=true,4200);}
 function alert(message){const b=$('#global-alert');b.replaceChildren(text('span',message));b.hidden=!message;}
 function pendingAlert(){const raw=localStorage.getItem('oneai.pending');if(!raw)return;alert('上次提交尚未确认，内容已保存在这台设备。');const b=text('button','重试提交','text-button');b.onclick=async()=>{try{const c=JSON.parse(raw);const r=await sendCommand(c,true);if(c.action==='create'){localStorage.removeItem('oneai.new');$('#create-form').reset();$('#create-dialog').close();await selectTask(r.task_id);}if(c.action==='revise'){localStorage.removeItem('oneai.draft.'+c.task_id);}announce('已确认提交');await loadTasks();if(state.task)await selectTask(state.task.id);}catch(e){announce(e.message);}};$('#global-alert').append(b);}
 async function api(path,options={}){const {quiet=false,...fetchOptions}=options;let response;try{response=await fetch('/api'+path,{...fetchOptions,headers:{'Content-Type':'application/json',...(options.method?{'X-OneAI-CSRF':state.csrf}:{}),...options.headers},credentials:'same-origin'});}catch(error){if(error.name==='AbortError')throw error;if(!quiet){state.online=false;connection(false);}throw new Error('暂时无法连接云端，内容已保留。');}let value;try{value=await response.json();}catch{throw new Error('服务返回异常，请稍后重试。');}if(!response.ok){const messages={login_required:'请重新连接这台设备。',invalid_code:'配对码无效、已使用或已过期。',too_many_attempts:'尝试次数较多，请十分钟后重试。',origin_rejected:'请从工作空间的原地址打开。',csrf_rejected:'登录状态已变化，请刷新页面。',internal_error:'服务暂时出错，请稍后重试。'};const trace=response.headers.get('X-Request-ID');const error=new Error((messages[value.detail]||value.detail||'操作失败')+(response.status>=500&&trace?'（请求编号 '+trace+'）':''));error.status=response.status;if(response.status===401&&path!='/login')showLogin();throw error;}return value;}
 function connection(online){state.online=online;$('#connection-dot').classList.toggle('online',online);$('#connection-label').textContent=online?'云端已连接':'暂时离线';$('#connection-detail').textContent=online?'任务持续处理中':'恢复网络后可继续';}
-function showLogin(){clearTaskLists();state.items=[];$('#task-list').replaceChildren();if(typeof mailDisplayCache!=='undefined')mailDisplayCache.clear();selectionSequence++;selectionRequest?.abort();state.task=null;$('#workspace').hidden=true;$('#login-screen').hidden=false;clearInterval(timer);}
+function showLogin(){clearTaskLists();state.items=[];$('#task-list').replaceChildren();if(typeof mailDisplayCache!=='undefined')mailDisplayCache.clear();selectionSequence++;selectionRequest?.abort();state.task=null;$('#workspace').hidden=true;$('#login-screen').hidden=false;}
 async function start(){try{
  const key=taskListKey(),params=new URLSearchParams({q:state.query,task_status:state.filter,mail_view:state.mailView});
  let bundle;try{bundle=await api('/bootstrap?'+params);}catch(e){if(e.status!==404)throw e;const session=await api('/session');bundle={session};}
  const session=bundle.session;state.csrf=session.csrf;state.device=session.device_id;$('#login-screen').hidden=true;$('#workspace').hidden=false;connection(true);
  if(bundle.tasks){rememberTaskList(key,bundle.tasks);renderTaskList(bundle.tasks);renderedTaskListKey=key;renderStatus(bundle.status);loadMailAlerts().catch(()=>{});scheduleTaskPrefetch();}
  else await Promise.all([loadTasks(),status()]);
- pendingAlert();clearInterval(timer);timer=setInterval(poll,15000);
+ pendingAlert();
  }catch(e){if(e.status===401)showLogin();else{$('#login-error').textContent=e.message;showLogin();}}}
 const pairDigits=$$('.pair-digit');
 function syncPair(){ $('#pair-code').value=pairDigits.map(x=>x.value).join(''); }
@@ -34,7 +34,7 @@ async function status(){loadMailAlerts().catch(()=>{});const s=await api('/statu
 const taskLists=new Map(),taskListRequests=new Map();
 let taskListSequence=0,taskListGeneration=0,renderedTaskListKey='';
 const TASK_LIST_TTL=15000,TASK_LIST_LIMIT=20;
-function clearTaskLists(){clearTimeout(taskPrefetchTimer);taskPrefetchController?.abort();taskPrefetchAttempts=0;taskPrefetchBytes=0;taskListGeneration++;taskListSequence++;taskLists.clear();taskListRequests.clear();renderedTaskListKey='';}
+function clearTaskLists(keepDisplayed=false){clearTimeout(taskPrefetchTimer);taskPrefetchController?.abort();taskPrefetchAttempts=0;taskPrefetchBytes=0;taskListGeneration++;taskListSequence++;taskLists.clear();taskListRequests.clear();if(!keepDisplayed)renderedTaskListKey='';}
 function taskListKey(offset=0){return new URLSearchParams({status:state.filter,q:state.query,offset,mail_view:state.mailView}).toString();}
 function rememberTaskList(key,data){taskLists.delete(key);taskLists.set(key,{data,at:Date.now()});while(taskLists.size>TASK_LIST_LIMIT)taskLists.delete(taskLists.keys().next().value);}
 async function fetchTaskList(key,options={}){
@@ -148,9 +148,56 @@ $('#knowledge-form').onsubmit=async e=>{e.preventDefault();const box=$('#knowled
 async function loadDevices(){loadPushState().catch(e=>$('#push-status').textContent=e.message);const r=await api('/devices');const list=$('#device-list');list.replaceChildren();for(const device of r.devices){const row=text('div','','device-row'),info=text('div','');info.append(text('h3',device.name+(device.id===state.device?' · 当前设备':'')),text('p','连接于 '+new Date(device.created*1000).toLocaleDateString('zh-CN')));row.append(info);if(device.id!==state.device){const revoke=text('button','断开连接','text-button');revoke.onclick=async()=>{if(!confirm('断开这台设备？它需要新的配对码才能重新登录。'))return;try{await api('/devices/revoke',{method:'POST',body:JSON.stringify({id:device.id})});await loadDevices();}catch(e){announce(e.message);}};row.append(revoke);}list.append(row);}}
 $('#pair-device').onclick=async()=>{const button=$('#pair-device');button.disabled=true;button.textContent='正在生成…';try{const r=await api('/pair',{method:'POST',body:'{}'});const box=$('#pair-result');box.replaceChildren(pairCodeDisplay(r.code),text('p','在另一台设备输入此码。十分钟内有效，仅可使用一次；生成新码后旧码失效。'));box.hidden=false;box.scrollIntoView({block:'nearest',behavior:'smooth'});}catch(e){announce(e.message);}finally{button.disabled=false;button.textContent='生成四位配对码';}};
 $('#logout').onclick=async()=>{if(localStorage.getItem('oneai.pending')){announce('还有未确认的提交，请先处理后再退出。');return;}if(!confirm('退出这台设备？本机尚未提交的草稿将继续保留。'))return;try{await api('/logout',{method:'POST',body:'{}'});showLogin();}catch(e){announce(e.message);}};
-async function poll(){if(document.hidden)return;try{await Promise.all([status(),state.page==='tasks'?loadTasks():Promise.resolve()]);if(state.page==='tasks'){if(state.task&&!state.editing){const id=state.task.id,sequence=selectionSequence;const latest=await api('/tasks/'+id);if(sequence===selectionSequence&&state.task?.id===id&&!state.editing&&(latest.revision!==state.task.revision||latest.updated!==state.task.updated||latest.status!==state.task.status)){state.task=latest;renderTask();}}}}catch(e){connection(false);if(e.status!==401)alert('连接暂时中断。云端仍会继续处理；本机未提交的内容会保留。');}}
-$('#refresh').onclick=async()=>{try{await poll();if(state.online)announce('已刷新。');}catch(e){announce(e.message);}};
-window.addEventListener('online',()=>{poll();pendingAlert();});window.addEventListener('offline',()=>{connection(false);alert('你已离线。可以编辑草稿，恢复网络后再提交。');});
+let refreshRequest;
+async function refreshWorkspace(notify=true){
+ if(document.hidden||$('#workspace').hidden)return;
+ if(refreshRequest)return refreshRequest;
+ const button=$('#refresh');button.disabled=true;
+ refreshRequest=(async()=>{
+  try{
+   clearTaskLists(true);mailDisplayCache.clear();
+   await Promise.all([status(),state.page==='tasks'?loadTasks():state.page==='devices'?loadDevices():state.page==='sessions'?loadSessions():Promise.resolve()]);
+   if(state.page==='tasks'&&state.task&&!state.editing){
+    const id=state.task.id,sequence=selectionSequence,latest=await api('/tasks/'+id);
+    if(sequence===selectionSequence&&state.task?.id===id&&!state.editing){state.task=latest;renderTask();}
+   }
+   if(notify&&state.online)announce('已刷新。');
+  }catch(e){connection(false);if(e.status!==401)alert('暂时无法刷新，请稍后重试。本机未提交的内容会保留。');}
+  finally{button.disabled=false;refreshRequest=null;}
+ })();return refreshRequest;
+}
+$('#refresh').onclick=()=>refreshWorkspace();
+window.addEventListener('online',()=>{refreshWorkspace(false);pendingAlert();});
+window.addEventListener('offline',()=>{connection(false);alert('你已离线。可以编辑草稿，恢复网络后再提交。');});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshWorkspace(false);});
+window.addEventListener('pageshow',event=>{if(event.persisted)refreshWorkspace(false);});
+function installPullRefresh(){
+ const indicator=text('div','','pull-refresh');indicator.hidden=true;indicator.setAttribute('role','status');document.body.append(indicator);
+ let gesture=null;
+ const reset=()=>{gesture=null;if(!refreshRequest)indicator.hidden=true;};
+ const atTop=target=>{for(let el=target;el;el=el.parentElement)if(el.scrollTop>1)return false;return true;};
+ document.addEventListener('touchstart',e=>{
+  reset();const target=e.target;
+  if(e.touches.length!==1||!matchMedia('(max-width:760px)').matches||state.page!=='tasks'||state.editing||refreshRequest||$('#workspace').hidden||document.querySelector('dialog[open]')||!target.closest('#tasks-page')||target.closest('input,textarea,select,a,[contenteditable="true"]')||!atTop(target))return;
+  gesture={x:e.touches[0].clientX,y:e.touches[0].clientY,distance:0,target};
+ },{passive:true});
+ document.addEventListener('touchmove',e=>{
+  if(!gesture)return;if(e.touches.length!==1){reset();return;}
+  const dx=e.touches[0].clientX-gesture.x,dy=e.touches[0].clientY-gesture.y;
+  if(Math.abs(dx)>Math.max(12,Math.abs(dy))||dy<0||!atTop(gesture.target)){reset();return;}
+  if(dy<12)return;if(!e.cancelable){reset();return;}e.preventDefault();gesture.distance=dy;
+  indicator.hidden=false;indicator.textContent=dy>=80?'松开刷新':'下拉刷新';indicator.classList.remove('is-loading');
+ },{passive:false});
+ document.addEventListener('touchend',async e=>{
+  if(!gesture)return;const distance=gesture.distance;gesture=null;
+  if(distance>12&&e.cancelable)e.preventDefault();
+  if(distance<80){indicator.hidden=true;return;}
+  indicator.hidden=false;indicator.textContent='正在刷新…';indicator.classList.add('is-loading');
+  try{await refreshWorkspace();}finally{indicator.hidden=true;indicator.classList.remove('is-loading');}
+ },{passive:false});
+ document.addEventListener('touchcancel',reset,{passive:true});
+}
+installPullRefresh();
 if('serviceWorker'in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});
 start();
 
