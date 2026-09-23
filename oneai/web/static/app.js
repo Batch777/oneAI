@@ -94,10 +94,10 @@ async function loadTasks(append=false,force=true){
  if(append&&renderedTaskListKey!==baseKey)return;
  if(cached&&!append&&!(force&&renderedTaskListKey===baseKey)){renderTaskList(cached.data);renderedTaskListKey=baseKey;}
  else if(!append&&renderedTaskListKey!==baseKey){state.items=[];state.offset=0;$('#task-list').replaceChildren();more.hidden=true;}
- if(cached&&!append&&!force&&Date.now()-cached.at<TASK_LIST_TTL){notice.textContent='';more.disabled=false;scheduleTaskPrefetch();return;}
- notice.textContent=cached?'显示已缓存的列表，正在更新…':append?'正在加载更多…':'正在加载…';more.disabled=true;
- try{const data=await fetchTaskList(key);if(!current())return;renderTaskList(data,base);renderedTaskListKey=baseKey;notice.textContent='';}
- catch(error){if(!current())return;notice.textContent=cached?'暂时无法更新，当前为缓存列表。':error.message;}
+ if(cached&&!append&&!force&&Date.now()-cached.at<TASK_LIST_TTL){notice.classList.remove('is-loading');notice.textContent='';more.disabled=false;scheduleTaskPrefetch();return;}
+ notice.classList.add('is-loading');notice.textContent=append?'正在加载更多…':'正在更新列表…';more.disabled=true;
+ try{const data=await fetchTaskList(key);if(!current())return;renderTaskList(data,base);renderedTaskListKey=baseKey;notice.classList.remove('is-loading');notice.textContent='';}
+ catch(error){if(!current())return;notice.classList.remove('is-loading');notice.textContent=cached?'暂时无法更新，当前为缓存列表。':error.message;}
  finally{if(current()){more.disabled=false;scheduleTaskPrefetch();}}
 }
 function disclosure(title,value,parent){const d=text('details','','detail-section');d.append(text('summary',title));const body=text('div','','section-content');if(typeof value==='string')body.append(text('pre',value,'plain-text'));else value(body);d.append(body);parent.append(d);return d;}

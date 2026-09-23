@@ -31,3 +31,9 @@
 html,body,body *{touch-action:manipulation}
 
 .list-status{margin:0;padding:8px 18px}.list-status:empty{display:none}
+
+/* Keep the live-region text available to assistive technology. */
+.list-status.is-loading{font-size:0;line-height:0}
+.list-status.is-loading::before{content:"";display:inline-block;width:14px;height:14px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:list-spin .8s linear infinite;vertical-align:middle}
+@keyframes list-spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.list-status.is-loading::before{animation:none}}

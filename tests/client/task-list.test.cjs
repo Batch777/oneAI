@@ -5,7 +5,7 @@ function setup(){
  const state={filter:'needs_review',query:'',mailView:'inbox',offset:0,items:[]};
  const context=vm.createContext({state,URLSearchParams,AbortController,TextEncoder,setTimeout:()=>1,clearTimeout:()=>{},document:{hidden:false},navigator:{},Date:{now:()=>now},
  api:(key,options)=>new Promise((resolve,reject)=>pending.push({key,options,resolve,reject})),
- $:s=>elements[s]??=({textContent:'',disabled:false,replaceChildren(){}})});
+ $:s=>elements[s]??=({textContent:'',disabled:false,classList:{add(){},remove(){}},replaceChildren(){}})});
  vm.runInContext(source.slice(source.indexOf('// Private, bounded'),source.indexOf('function disclosure(')),context);
  context.renderTaskList=(data,base=[])=>{state.items=base.concat(data.items);state.offset=state.items.length;renders.push(Array.from(state.items,x=>x.id));};
  return {context,state,pending,renders,elements,tick:()=>now+=16000};
