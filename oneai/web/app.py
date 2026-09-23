@@ -340,6 +340,8 @@ def create_app(cfg=None,origin=None,dev=False):
 
     from ..sessions.routes import mount
     mount(app, cfg, authenticated, body)
+    from ..plugins.routes import mount as mount_plugins
+    mount_plugins(app, cfg, authenticated, body)
 
     @app.get('/api/version')
     def release_version():
@@ -355,7 +357,7 @@ def create_app(cfg=None,origin=None,dev=False):
 
     @app.get('/{name}')
     def static(name:str):
-        if name not in ('app.js','updates.js','mail.js','sessions.js','app.css','sw.js','manifest.webmanifest','icon.svg','icon-192.png','icon-512.png','apple-touch-icon.png'): raise HTTPException(404)
+        if name not in ('app.js','plugins.js','updates.js','mail.js','sessions.js','app.css','sw.js','manifest.webmanifest','icon.svg','icon-192.png','icon-512.png','apple-touch-icon.png'): raise HTTPException(404)
         return FileResponse(STATIC/name)
 
     return app

@@ -1,6 +1,6 @@
-# oneAI Plugin API v1 提案
+# oneAI Plugin API：已实现子集与后续提案
 
-状态：2026-09-22，设计待评审，**尚未实现插件运行时或安装接口**。本规范定义 oneAI 应用自身的扩展协议，不等同于 Codex 插件或 pi extension 格式。与 [自迭代架构](SELF-EVOLUTION-ARCHITECTURE.md) 一起评审。
+状态：2026-09-23，已实现 action.provider.v1 的 owner-trusted Python 子集，详见 [当前接口与运维](PLUGIN-RUNTIME.md)。**下文仍是完整目标提案，不代表所有接口已经可用**。本规范定义 oneAI 应用自身的扩展协议，不等同于 Codex 插件或 pi extension 格式。与 [自迭代架构](SELF-EVOLUTION-ARCHITECTURE.md) 一起评审。
 
 ## 1. 设计取舍
 

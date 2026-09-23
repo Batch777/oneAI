@@ -6,9 +6,9 @@
  const label=document.createElement('small');label.textContent=known?'界面版本 '+loaded.slice(0,7):'开发版本';
  const button=document.createElement('button');button.className='text-button';button.hidden=true;
  button.textContent='有新版本 · 重新加载';button.classList?.add('release-update');
- row.append(label);const devices=document.querySelector('#devices-page');
- if(devices?.prepend)devices.prepend(row);else document.body.append(row);
- document.body.append(button);
+ row.append(label);const devices=document.querySelector('#updates-panel');
+ if(devices?.append)devices.append(row);else document.body.append(row);
+ row.append(button);
  const checkButton=document.createElement('button');checkButton.className='secondary';checkButton.textContent='检查更新';
  const feedback=document.createElement('p');feedback.className='hint';feedback.setAttribute?.('role','status');
  row.append(checkButton,feedback);

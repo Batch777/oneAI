@@ -92,7 +92,8 @@ class JsonLines:
 
 
 class Codex:
-    def __init__(self, binary, cwd, directory, emit, remote_id=None):
+    def __init__(self, binary, cwd, directory, emit, remote_id=None, policy="workspace"):
+        if policy not in ("workspace", "full"): raise ValueError("invalid_runtime_policy")
         self.emit, self.turn = emit, None
         self.settled = threading.Event()
         self.settled.set()
@@ -103,6 +104,8 @@ class Codex:
             self.rpc.request('initialize', {'clientInfo': {'name': 'oneai_host', 'title': 'oneAI', 'version': '0.1.0'}})
             self.rpc.send({'method': 'initialized'})
             params = {'cwd': str(cwd), 'approvalPolicy': 'on-request', 'approvalsReviewer': 'user', 'sandbox': 'workspace-write'}
+            if policy == 'full':
+                params.update(approvalPolicy='never', sandbox='danger-full-access')
             if remote_id:
                 params['threadId'] = remote_id
             result = self.rpc.request('thread/resume' if remote_id else 'thread/start', params)
@@ -168,14 +171,15 @@ class Codex:
 
 
 class Pi:
-    def __init__(self, binary, cwd, directory, emit, remote_id=None):
+    def __init__(self, binary, cwd, directory, emit, remote_id=None, policy="workspace"):
+        if policy not in ("workspace", "full"): raise ValueError("invalid_runtime_policy")
         self.emit = emit
         directory = Path(directory)
         directory.mkdir(parents=True, exist_ok=True)
         self.remote_id = remote_id or str(directory/'session.jsonl')
         self.rpc = JsonLines([binary, '--mode', 'rpc', '--session', self.remote_id,
                               '--no-extensions', '--no-prompt-templates', '--no-skills', '--no-themes',
-                              '--no-approve', '--tools', 'read,grep,find,ls'], cwd, self.event)
+                              '--no-approve', '--tools', 'read,bash,edit,write,grep,find,ls' if policy == 'full' else 'read,grep,find,ls'], cwd, self.event)
         try:
             self.rpc.request('get_state', pi=True)
         except Exception:

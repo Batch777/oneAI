@@ -27,7 +27,7 @@ ssh -T -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=yes \
   -o UserKnownHostsFile=~/.ssh/oneai_hk_known_hosts root@47.82.117.21 'systemctl is-active oneai-web'
 ```
 
-当前依旧单用户；Codex 额外权限审批尚无手机 UI、pi 仅开放只读项目工具。扩展与自更新 review 见 [MOBILE-DEVELOPMENT-REVIEW.md](MOBILE-DEVELOPMENT-REVIEW.md)。
+当前依旧单用户；这两个 Linux 托管 Host 按用户授权使用 `runtime_policy: full`：Codex danger-full-access / never，pi 开放读写和 bash。其他未配置 Host 保留原策略。完整权限限于 steven 操作系统账户；不是多租户隔离。扩展与自更新 review 见 [MOBILE-DEVELOPMENT-REVIEW.md](MOBILE-DEVELOPMENT-REVIEW.md)。
 
 ## 历史验收结果（2026-09-21）
 

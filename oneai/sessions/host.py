@@ -97,7 +97,8 @@ class Host:
             raise ValueError('执行主机已达到并发会话上限，请先关闭一个会话。')
         binary = self.config['binaries'][provider]
         runtime = ADAPTERS[provider](binary, cwd, self.directory/sid,
-                                    lambda k, p: self.emit(sid, k, p), existing[3] if existing and existing[4] else None)
+                                    lambda k, p: self.emit(sid, k, p), existing[3] if existing and existing[4] else None,
+                                    **({'policy': self.config['runtime_policy']} if 'runtime_policy' in self.config else {}))
         with self.lock:
             self.db.execute('INSERT OR REPLACE INTO runtimes VALUES(?,?,?,?,?)',
                             (sid, provider, workspace, runtime.remote_id, existing[4] if existing else 0))

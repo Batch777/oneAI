@@ -28,7 +28,7 @@ oneAI 自开发使用 `~/oneai-data/owner/workspaces/oneAI`，分支 `codex/mobi
 
 目前仍有必须明确的缺口：
 
-- `ADAPTERS` 和服务端 provider 白名单仍为内置注册，尚没有第三方插件发现、Broker、Runner 或安装界面。不能把 spec 描述当作已实现的插件系统。
+- `ADAPTERS` 和服务端 provider 白名单仍为内置注册，已有独立 action 插件 Registry/Runner、Linux 本地安装及设置页启停/调用。Codex/pi 仍为内置 Adapter；完整提案中的网关与第三方沙箱未实现。
 - Codex 可在 workspace-write 内开发；额外权限审批当前拒绝，尚无手机审批卡片。pi 此入口只开放 read/grep/find/ls，关闭自动扩展加载，不开放任意 shell。
 - 插件第一阶段应实现 manifest/API 版本校验、受控本地注册及契约测试，再将内置 Codex/pi 迁入同一 registry；第二阶段才开放独立进程插件、能力白名单、升级排空和故障隔离。接口与权限细节见 [PLUGIN-SPEC.md](PLUGIN-SPEC.md)。
 - 现有独立 Host 凭证隔离的是主机派发与事件写入，手机仍是单人设备共享权限；未完成 tenant、OS 用户隔离前不开放多用户注册。
@@ -57,4 +57,4 @@ oneAI 自开发使用 `~/oneai-data/owner/workspaces/oneAI`，分支 `codex/mobi
 - 设置页真实点击“检查更新”，显示“当前已是最新界面”；390px 下设置/会话页没有横向溢出。Simulator 直接连接公网并显示两个 Linux 会话。真机由用户后续验收。
 - 通过已登录公网页面发消息：Codex 返回 `ONEAI_MOBILE_CODEX_READY`，pi 返回 `ONEAI_MOBILE_PI_READY`。Codex 在独立工作区创建 state/mobile-self-development-smoke.txt，服务端 SSH 验证内容为 `ONEAI_WORKSPACE_WRITE_OK`，Git 工作区干净。
 - Mac 与 Debian 39 项会话/Web Python 测试通过；Mac 27 项客户端测试通过，Debian 4 项更新提示测试通过。
-- 当前“检查更新”只加载已发布网页；没有从手机任意发布服务器代码，也没有生产无人值守自更新。插件隔离/安装界面仍属后续实现。
+- 当前“检查更新”只加载已发布网页；没有从手机任意发布服务器代码，也没有生产无人值守自更新。已实现可信插件的进程故障隔离和本地安装；恶意代码隔离仍属后续实现。
