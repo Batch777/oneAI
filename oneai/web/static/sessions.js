@@ -38,7 +38,9 @@ async function loadSessions(){
       button.onclick=()=>selectSession(row.id);list.append(button);
     }
     if(!sessions.items.length)list.append(text('p','选择执行主机，开始一段新会话。','hint'));
-    if(!hosts.items.length)sessionNotice('尚未连接执行主机。请先在服务器注册主机，再运行 oneAI 会话服务。');
+    const noHosts='尚未连接执行主机。请先在服务器注册主机，再运行 oneAI 会话服务。';
+    if(!hosts.items.length)sessionNotice(noHosts);
+    else if(document.querySelector('#session-notice').textContent===noHosts)sessionNotice('执行主机已连接，可以选择会话继续。');
     if(sessionView.selected)await renderSession();
     document.querySelector('#session-retry').hidden=!localStorage.getItem('oneai.session.pending');
   }catch(error){sessionNotice(error.message==='sessions_not_enabled'?'会话控制尚未启用。管理员启用并连接执行主机后即可使用。':error.message);}
