@@ -7,8 +7,8 @@ async function loadSessionCatalog(){
 }
 function catalogFor(host){return sessionCatalog.items.find(x=>x.host_id===host)||{models:[],profiles:[]};}
 function options(select,items,preferred){
- const before=preferred??select.value;select.replaceChildren();
- for(const item of items){const el=text('option',item.name||item.id);el.value=item.id;select.append(el);}
+ const before=preferred??select.value,signature=JSON.stringify(items.map(x=>[x.id,x.name]));
+ if(select.dataset.options!==signature){select.dataset.options=signature;select.replaceChildren();for(const item of items){const el=text('option',item.name||item.id);el.value=item.id;select.append(el);}}
  if(items.some(x=>x.id===before))select.value=before;
 }
 function effortOptions(modelSelect,effortSelect,models,preferred){

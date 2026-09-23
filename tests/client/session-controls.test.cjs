@@ -10,3 +10,9 @@ test('review prompt includes purpose, exact commits and per-file evidence withou
  const c=context();const value=c.reviewText({purpose:'Fix switch',branch:'codex/test',base_sha:'a'.repeat(40),head_sha:'b'.repeat(40),dirty:true,workspace_digest:'digest',files:[{path:'oneai/web/a.js',status:'changed',purpose:'Switch safely'}],tests:'not run',decision:'只审查'});
  assert.match(value,/Fix switch/);assert.match(value,/oneai\/web\/a.js/);assert.match(value,/Switch safely/);assert.match(value,/含未提交改动/);assert.match(value,/not run/);assert.match(value,/重新生成/);
 });
+test('unchanged model polling preserves native select options and user choice',()=>{
+ const ctx=vm.createContext({text:(tag,label)=>({textContent:label})});vm.runInContext(source.slice(source.indexOf('function options('),source.indexOf('function effortOptions(')),ctx);
+ const select={value:'b',dataset:{},children:[],changes:0,replaceChildren(){this.children=[];this.changes++;},append(n){this.children.push(n);}};
+ const values=[{id:'a',name:'A'},{id:'b',name:'B'}];ctx.options(select,values);const option=select.children[0];ctx.options(select,values);
+ assert.equal(select.value,'b');assert.equal(select.changes,1);assert.equal(select.children[0],option);
+});

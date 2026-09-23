@@ -27,8 +27,8 @@ async function loadSessions(){
     if(typeof loadSessionCatalog==='function')await loadSessionCatalog();
     const hostSelect=document.querySelector('#session-host');
     const before=hostSelect.value;
-    hostSelect.replaceChildren();
-    for(const host of hosts.items.filter(h=>h.capabilities.providers.length)){const o=text('option',host.name+(host.online?' · 在线':' · 离线'));o.value=host.id;hostSelect.append(o);}
+    const hostOptions=hosts.items.filter(h=>h.capabilities.providers.length),signature=JSON.stringify(hostOptions.map(h=>[h.id,h.name,h.online]));
+    if(hostSelect.dataset.options!==signature){hostSelect.dataset.options=signature;hostSelect.replaceChildren();for(const host of hostOptions){const o=text('option',host.name+(host.online?' · 在线':' · 离线'));o.value=host.id;hostSelect.append(o);}}
     if(hosts.items.some(h=>h.id===before))hostSelect.value=before;
     refreshSessionCapabilities();
     const list=document.querySelector('#session-list');list.replaceChildren();
@@ -51,8 +51,8 @@ async function loadSessions(){
 function refreshSessionCapabilities(){
   const host=sessionView.hosts.find(h=>h.id===document.querySelector('#session-host').value);
   for(const [id,values] of [['session-provider',host?.capabilities.providers||[]],['session-workspace',host?.capabilities.workspaces||[]]]){
-    const select=document.querySelector('#'+id),before=select.value;select.replaceChildren();
-    for(const value of values){const o=text('option',value);o.value=value;select.append(o);}
+    const select=document.querySelector('#'+id),before=select.value,signature=JSON.stringify(values);
+    if(select.dataset.options!==signature){select.dataset.options=signature;select.replaceChildren();for(const value of values){const o=text('option',value);o.value=value;select.append(o);}}
     if(values.includes(before))select.value=before;
   }
   document.querySelector('#session-create').disabled=!host||!host.capabilities.providers.length;
