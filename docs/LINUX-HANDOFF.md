@@ -10,6 +10,6 @@ SSH：Linux systemd 用户隧道经香港回环 22390；已启用 linger。Mac �
 
 更新工具 deploy/releases/manager.py 只接受操作者明确选择的准确 Git SHA，先 stage，再 activate；记录完整性清单、独占切换锁、部署日志、失败回滚。只在 Linux 隔离 staging 验收；不是生产自动发布器。未完成可信 GitHub 制品签名、锁定依赖、数据库迁移备份及 worker 排空前，不启用无人值守生产自更新。测试服务回环 18765，无真实 Outlook/Jev 凭证及收信 worker。
 
-持续工作须更新 Git、记录测试证据。先 simulator 验证更新及回滚，再尝试已连接 iPhone；原生安装必须具备开发签名。当前 Mac 无有效 codesigning identity，可能需用户登录 Xcode Apple Account。
+持续工作须更新 Git、记录测试证据。先 simulator 验证更新及回滚，再尝试已连接 iPhone；原生安装必须具备开发签名。Mac 已配置 Apple Personal Team、创建开发签名并安装到 iPhone，手机已信任开发者且启动复测成功；详见 apps/apple/README.md。
 
 原始快照最初被自动审批阻止；用户随后明确授权仅复制到自己的 Linux 且 steven 可读，现已传输并以 thread/read 验证。快照权限 0600，不入 Git。此文为不含凭证的补充工作上下文。当前 Mac 对话仍在运行，不从 Linux 同时写同一会话。详见 LINUX-RELEASE-ACCEPTANCE.md。
