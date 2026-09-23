@@ -74,6 +74,8 @@ def switch(root, sha):
 
 
 def activate(root, sha, restart, health):
+    if not re.fullmatch(r'[0-9a-f]{40}', sha):
+        raise ValueError('exact_commit_required')
     root.mkdir(parents=True, exist_ok=True)
     with (root / 'deploy.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)

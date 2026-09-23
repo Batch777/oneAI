@@ -50,3 +50,9 @@ def test_rollback_failure_is_visible(tmp_path):
     with pytest.raises(RuntimeError,match='rollback_health_failed'):
         m.activate(tmp_path,new,lambda:None,lambda sha:False)
     assert json.loads((tmp_path/'deployment.json').read_text())['phase']=='rollback_failed'
+
+
+def test_activate_rejects_non_commit_selector(tmp_path):
+    with pytest.raises(ValueError, match='exact_commit_required'):
+        m.activate(tmp_path, '../candidate', lambda:pytest.fail(), lambda sha:True)
+    assert not (tmp_path/'deployment.json').exists()

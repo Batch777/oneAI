@@ -2,14 +2,14 @@
 
 ## 本轮结果
 
-- `/home/steven/oneAI` 已具备完整 Git 历史，origin 为 `https://github.com/Batch777/oneAI.git`。
+- `/home/steven/oneAI` 已具备完整 Git 历史，origin 为 `https://github.com/Batch777/oneAI.git`。GitHub CLI/keyring 令牌失效，公网仓库尚未同步本轮提交；两端通过 Git bundle 保留原始历史。
 - Linux Codex 已独立登录；本次会话快照经用户明确授权复制，权限 0600 / steven。`thread/read` 成功识别 `01a0c2de-1980-7a73-abab-2102c5d7e91d`。这是时点快照；当前桌面任务不会自动迁移，未同时运行两个写入者。
 - Linux 用户服务 `oneai-hk-tunnel` active、Linger=yes。Mac alias `ssh_debian` 已替换，旧 alias 注释，强制香港中转实测成功。
 - Linux `oneai-staging` 只监听 127.0.0.1:18765，通过 Mac SSH 本地端口转发供 Simulator 访问；数据在 `~/oneai-staging/data`。无真实收信 worker。
 - 模拟器已在测试服务完成配对、看到“Linux 热更新验收”任务。版本从 e4b11d5 更新至 ed703bc、9eae9ab；不重装 App。
 - iPhone 17 Pro Simulator 显示设置页版本 9eae9ab。服务回退至 ed703bc 后，App 从后台返回显示“有新版本 · 重新加载”；取消保留页面，确认后重新加载、保持登录。服务随后恢复 9eae9ab。
 - 故障注入：Linux 真实重启候选后强制健康门禁失败，发布器自动切回 9eae9ab 并恢复版本接口；未回滚任务数据库。
-- 29 项发布管理器/Web Python 测试通过（Mac 和 Debian）；新增版本元数据验证后 Mac 共 30 项通过；26 项客户端测试通过（Mac，Linux 先跑 23 项既有测试，后跑 3 项更新提示测试）。
+- 30 项发布管理器/Web Python 测试通过（Mac 和 Debian）；另增加 commit 选择器拒绝测试；26 项客户端测试通过（Mac，Linux 先跑 23 项既有测试，后跑 3 项更新提示测试）。
 - 已连接真机 iPhone 17 Pro，开发者模式 enabled；Xcode 构建失败原因是尚无 Development Team。用户选择稍后配置签名，本轮未安装真机。
 
 ## 接口与操作
