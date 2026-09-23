@@ -87,3 +87,14 @@ def test_pi_selected_model_must_match_returned_model(monkeypatch,tmp_path):
   def close(self):pass
  monkeypatch.setattr('oneai.sessions.adapters.JsonLines',RPC)
  with pytest.raises(ValueError,match='mismatch'):Pi('pi',tmp_path,tmp_path,lambda *a:None,settings={'model':'kimi-coding/k3','effort':'high'})
+
+def test_closed_runtime_does_not_become_unknown_after_host_restart(tmp_path):
+ from oneai.sessions.host import Host
+ cfg={'providers':[],'workspaces':{},'binaries':{}}
+ h=Host(cfg,tmp_path)
+ h.db.execute("INSERT INTO runtimes VALUES('old','codex','oneAI','native',1)");h.db.commit()
+ h.execute({'session_id':'old','id':'close','payload':{'action':'close'}})
+ h.db.execute('DELETE FROM outbox');h.db.commit();h.close()
+ h=Host(cfg,tmp_path)
+ assert h.db.execute('SELECT count(*) FROM outbox').fetchone()[0]==0
+ h.close()

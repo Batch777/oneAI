@@ -32,6 +32,7 @@ class Host:
         ''')
         if 'prompted' not in {r[1] for r in self.db.execute('PRAGMA table_info(runtimes)')}:
             self.db.execute('ALTER TABLE runtimes ADD COLUMN prompted INTEGER NOT NULL DEFAULT 0')
+        self.db.execute('CREATE TABLE IF NOT EXISTS closed_runtimes(id TEXT PRIMARY KEY)')
         self.db.execute('CREATE TABLE IF NOT EXISTS session_baselines(id TEXT PRIMARY KEY,base_sha TEXT NOT NULL)')
         self.db.commit()
         self.runtimes = {}
@@ -43,7 +44,7 @@ class Host:
         self.metadata_at=0;self.metadata_future=None;self.metrics_at={}
         self.observers = {}
         self.observed_at = 0
-        for sid, *_ in self.db.execute('SELECT * FROM runtimes').fetchall():
+        for sid, *_ in self.db.execute('SELECT * FROM runtimes WHERE id NOT IN (SELECT id FROM closed_runtimes)').fetchall():
             # Session processes belong to the previous host instance. A stop from
             # a client reconnects persisted history; it never repeats a prompt.
             self.emit(sid, 'status', {'state': 'unknown', 'message': '执行服务已重启；请先停止并核对，再发送下一条消息。'})
@@ -112,6 +113,7 @@ class Host:
                                     **({'policy': self.config['runtime_policy']} if 'runtime_policy' in self.config else {}),
                                     **({'settings':settings} if settings else {}))
         with self.lock:
+            self.db.execute('DELETE FROM closed_runtimes WHERE id=?',(sid,))
             self.db.execute('INSERT OR REPLACE INTO runtimes VALUES(?,?,?,?,?)',
                             (sid, provider, workspace, runtime.remote_id, existing[4] if existing else 0))
             self.db.commit()
@@ -127,6 +129,8 @@ class Host:
                     runtime = self.runtimes.pop(sid, None)
                     if runtime:
                         runtime.close()
+                with self.lock:
+                    self.db.execute('INSERT OR IGNORE INTO closed_runtimes VALUES(?)',(sid,));self.db.commit()
                 self.emit(sid, 'status', {'state': 'closed', 'command_id': cid})
                 return
             if action == 'interrupt':
