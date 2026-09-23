@@ -13,3 +13,7 @@ SSH：Linux systemd 用户隧道经香港回环 22390；已启用 linger。Mac �
 持续工作须更新 Git、记录测试证据。先 simulator 验证更新及回滚，再尝试已连接 iPhone；原生安装必须具备开发签名。Mac 已配置 Apple Personal Team、创建开发签名并安装到 iPhone，手机已信任开发者且启动复测成功；详见 apps/apple/README.md。
 
 原始快照最初被自动审批阻止；用户随后明确授权仅复制到自己的 Linux 且 steven 可读，现已传输并以 thread/read 验证。快照权限 0600，不入 Git。此文为不含凭证的补充工作上下文。当前 Mac 对话仍在运行，不从 Linux 同时写同一会话。详见 LINUX-RELEASE-ACCEPTANCE.md。
+
+## 2026-09-23 自迭代入口更新
+
+原始测试会话已经关闭并从 oneAI 列表移除。使用 **oneAI 自迭代 · Astra 监工** 规划/spec/审查，使用 **oneAI 自迭代 · K3 实现** 实现/测试；均已读过本仓库 AGENTS.md 并等待新任务。模型、角色、用量与审计用法以 [SELF-DEVELOPMENT.md](SELF-DEVELOPMENT.md) 为准；Mix 当前显式交接，不自动循环或发布。

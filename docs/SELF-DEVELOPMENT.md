@@ -61,3 +61,13 @@ Codex 订阅没有可直接推算本会话账单的价格；pi 的 `cost` 来自
 - [Codex App Server](https://learn.chatgpt.com/docs/app-server)：model/list、thread/turn 模型与努力级别、tokenUsage、rateLimits；实现另按 Linux Codex 0.156.1 导出的 schema 核对。
 - Linux pi 0.87.1 随包 `docs/rpc-commands.md`：get_available_models、set_model、set_thinking_level、get_session_stats；没有升级 harness 来凑接口。
 - [Kimi 模型配置](https://www.kimi.com/code/docs/en/kimi-code/models.html)：K3 模型 ID、上下文及订阅权限差异。
+
+## 线上验收（2026-09-23）
+
+- 生产版本 `a2f82ff`，Linux 主仓库与开发 worktree 已同步。旧的两条测试会话已关闭并从列表移除，数据库备份和原始审计历史保留。
+- 正式入口 **oneAI 自迭代 · Astra 监工**：`6deab7c7afc1417fa13e7814c249e55a`，`gpt-6-astra / high / supervisor`。
+- 正式入口 **oneAI 自迭代 · K3 实现**：`292000830713443caff22712ab01bd23`，`kimi-coding/k3-256k / high / implementer`。
+- 两会话真实读取 AGENTS/合同模板并返回 READY，未修改工作区。Astra 回传 token 与账号额度，K3 回传 token/上下文；K3 实际请求成功，没有用 kimi-for-coding 替代。
+- UI 配置切换 Astra → Sol → Astra 收到执行端回执；未向 Sol 发送模型任务，最终保留用户指定的 Astra 监工。原 native 会话没有更换。
+- 实际 audit 请求列出准确基线/HEAD、干净工作区、无变更文件及摘要；不会将“无变更”伪造为可发布代码。有文件改动及未跟踪文件的摘要变化通过 Git 集成测试覆盖。
+- 本地主路径 Python 198 项、前端 Node 31 项通过；Linux 会话/模型/Web 48 项通过。390px 手机宽度下无横向溢出，模型/强度选择器宽度受卡片约束，审计提示词可换行。
