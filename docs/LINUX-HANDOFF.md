@@ -12,4 +12,4 @@ SSH：Linux systemd 用户隧道经香港回环 22390；已启用 linger。Mac �
 
 持续工作须更新 Git、记录测试证据。先 simulator 验证更新及回滚，再尝试已连接 iPhone；原生安装必须具备开发签名。当前 Mac 无有效 codesigning identity，可能需用户登录 Xcode Apple Account。
 
-完整原始 Codex 会话快照的传输被自动审批阻止，原因是历史中可能有凭证。此文为不含凭证的工作上下文，不能声称它与原始会话完全等价。当前 Mac 对话仍在运行，不从 Linux 同时写同一会话。
+原始快照最初被自动审批阻止；用户随后明确授权仅复制到自己的 Linux 且 steven 可读，现已传输并以 thread/read 验证。快照权限 0600，不入 Git。此文为不含凭证的补充工作上下文。当前 Mac 对话仍在运行，不从 Linux 同时写同一会话。详见 LINUX-RELEASE-ACCEPTANCE.md。

@@ -291,3 +291,16 @@ def test_list_refresh_limit_is_bounded_and_preserves_order(client):
     assert first['items']==expanded['items'][:50]
     assert c.get('/api/tasks?limit=501').status_code==400
     assert c.get('/api/tasks?limit=0').status_code==400
+
+def test_release_version_is_validated_and_never_cached(client,monkeypatch):
+    _,c=client
+    sha='a'*40
+    monkeypatch.setenv('ONEAI_RELEASE_COMMIT',sha)
+    response=c.get('/api/version')
+    assert response.json()=={'commit':sha,'api':1}
+    assert response.headers['cache-control']=='no-store'
+    assert f'<meta name="oneai-release" content="{sha}">' in c.get('/').text
+    monkeypatch.setenv('ONEAI_RELEASE_COMMIT','"><script>bad()</script>')
+    assert c.get('/api/version').json()['commit']=='development'
+    assert 'bad()' not in c.get('/').text
+    assert c.get('/updates.js').status_code==200
