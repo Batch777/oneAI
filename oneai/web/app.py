@@ -9,7 +9,7 @@ import sqlite3
 import time
 from urllib.parse import urlsplit, quote
 from fastapi import FastAPI, Request, Response, HTTPException, Depends
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, HTMLResponse
 from starlette.concurrency import run_in_threadpool
 from starlette.middleware.gzip import GZipMiddleware
 from . import auth
@@ -347,11 +347,15 @@ def create_app(cfg=None,origin=None,dev=False):
         return {'commit':value if re.fullmatch(r'[0-9a-f]{40}',value) else 'development','api':1}
 
     @app.get('/')
-    def home(): return FileResponse(STATIC/'index.html')
+    def home():
+        content=(STATIC/'index.html').read_text()
+        version=release_version()['commit']
+        content=content.replace('<head>', '<head><meta name="oneai-release" content="'+version+'">')
+        return HTMLResponse(content)
 
     @app.get('/{name}')
     def static(name:str):
-        if name not in ('app.js','mail.js','sessions.js','app.css','sw.js','manifest.webmanifest','icon.svg','icon-192.png','icon-512.png','apple-touch-icon.png'): raise HTTPException(404)
+        if name not in ('app.js','updates.js','mail.js','sessions.js','app.css','sw.js','manifest.webmanifest','icon.svg','icon-192.png','icon-512.png','apple-touch-icon.png'): raise HTTPException(404)
         return FileResponse(STATIC/name)
 
     return app
