@@ -48,3 +48,13 @@ oneAI 自开发使用 `~/oneai-data/owner/workspaces/oneAI`，分支 `codex/mobi
 6. 真机验证前台、后台、锁屏、点击跳转、换 token、退出后不再发送。服务商接收成功与手机显示分开记录。
 
 以上原生 adapter/sender 尚待实现及付费团队配置；现有 Web Push 不等于 WKWebView 原生 APNs。官方参考：[Apple APNs 注册](https://developer.apple.com/documentation/usernotifications/registering-your-app-with-apns)、[Codex App Server](https://learn.chatgpt.com/docs/app-server)。
+
+用户确认暂时没有付费团队，本轮先测试 App 与会话，不开通付费开发者计划。
+
+## 验收记录
+
+- 香港公网部署界面 commit `39dd650abe7c66b0fa000fc4b50b9dad1d9921fa`；部署前与 Git 基线逐文件核对，保留备份并设健康失败回滚。
+- 设置页真实点击“检查更新”，显示“当前已是最新界面”；390px 下设置/会话页没有横向溢出。Simulator 直接连接公网并显示两个 Linux 会话。真机由用户后续验收。
+- 通过已登录公网页面发消息：Codex 返回 `ONEAI_MOBILE_CODEX_READY`，pi 返回 `ONEAI_MOBILE_PI_READY`。Codex 在独立工作区创建 state/mobile-self-development-smoke.txt，服务端 SSH 验证内容为 `ONEAI_WORKSPACE_WRITE_OK`，Git 工作区干净。
+- Mac 与 Debian 39 项会话/Web Python 测试通过；Mac 27 项客户端测试通过，Debian 4 项更新提示测试通过。
+- 当前“检查更新”只加载已发布网页；没有从手机任意发布服务器代码，也没有生产无人值守自更新。插件隔离/安装界面仍属后续实现。

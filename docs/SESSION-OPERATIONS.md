@@ -1,6 +1,35 @@
 # 会话服务运行与验收
 
-## 当前验收结果（2026-09-21）
+## 当前公网入口（2026-09-23）
+
+手机 oneAI → 会话，已注册两个在线的 Linux 托管会话：
+
+| 会话 | 运行位置 | 实测 |
+| --- | --- | --- |
+| oneAI 自开发 · Linux Codex | `~/oneai-data/owner/workspaces/oneAI`，`codex/mobile-self-development` | 公网发消息、读取交接文档、在被忽略的 state 目录创建验收文件成功 |
+| Proxy-GS · pi / Kimi | `~/Proxy-GS`，Kimi Coding 订阅 | 公网读取 README 与文本回传成功；关闭后恢复同一会话 |
+
+Codex 运行时 ID `01a0cd85-1a65-7991-b206-26a10f3b78e3`，这是 Linux 专用自开发会话；不是当前 Mac 桌面任务的共享控制连接。Linux 已迁移的旧任务快照仍保留，不让两端同时续写同一 ID。
+
+Linux 用户服务：`oneai-linux-codex`、`oneai-linux-pi`，均 active/enabled；linger 已开启。Host 配置在 `~/.config/oneai/linux-{codex,pi}.json`，0600，运行状态在 `~/oneai-data/owner/state/`。pi 包为 0.87.1；专用 wrapper 使用已有 Node 22.23.2，避免系统 Node 20 不兼容。
+
+```bash
+ssh_debian
+systemctl --user status oneai-linux-codex oneai-linux-pi
+```
+
+不要另开 Codex/pi TUI 写入这些托管运行时；从手机、Mac 或 oneAI TUI 操作。Host 重启后按“停止并核对”恢复，未确认的写入不会自动重放。
+
+香港运维 SSH 已经用户明确授权，仅 Mac 原公钥可用，禁止 PTY 和各种转发，私钥没有传到 Linux：
+
+```bash
+ssh -T -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=yes \
+  -o UserKnownHostsFile=~/.ssh/oneai_hk_known_hosts root@47.82.117.21 'systemctl is-active oneai-web'
+```
+
+当前依旧单用户；Codex 额外权限审批尚无手机 UI、pi 仅开放只读项目工具。扩展与自更新 review 见 [MOBILE-DEVELOPMENT-REVIEW.md](MOBILE-DEVELOPMENT-REVIEW.md)。
+
+## 历史验收结果（2026-09-21）
 
 - 全部主路径 Python 测试 90 项通过；新增会话测试 13 项覆盖两端冲突、重复提交、过期、丢失派发、主机凭证隔离、重启待上传队列、pi 停止顺序、只读绑定及过滤 reasoning。
 - 实际 Codex：登录账号类型 ChatGPT；发送固定无工具测试文本，收到 `ONEAI_SESSION_OK`，关闭进程后成功恢复同一 thread。
