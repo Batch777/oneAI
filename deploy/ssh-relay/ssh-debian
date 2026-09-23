@@ -1,0 +1,12 @@
+#!/bin/bash
+set -euo pipefail
+# ProxyCommand must not inherit fish interactive startup on this Mac.
+export SHELL=/bin/sh
+# ONEAI_DEBIAN_ROUTE=relay forces an end-to-end test through Hong Kong.
+route="${ONEAI_DEBIAN_ROUTE:-auto}"
+case "$route" in auto|lan|relay) ;; *) echo 'Route must be auto, lan or relay' >&2; exit 2;; esac
+args=(-X -o StrictHostKeyChecking=yes -o HostKeyAlias=192.168.31.239 -o ExitOnForwardFailure=yes -L 127.0.0.1:8080:localhost:8080 -L 127.0.0.1:9090:localhost:9090 -L 127.0.0.1:5173:localhost:5173 -L 127.0.0.1:8888:localhost:8888 -L 127.0.0.1:5000:localhost:5000)
+if [ "$route" = lan ] || { [ "$route" = auto ] && nc -z -G 2 192.168.31.239 22 >/dev/null 2>&1; }; then
+ exec ssh "${args[@]}" steven@192.168.31.239 "$@"
+fi
+exec ssh "${args[@]}" -o 'ProxyCommand=ssh -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/oneai_hk_known_hosts -i ~/.ssh/id_ed25519 -W 127.0.0.1:22390 oneai-jump@47.82.117.21' steven@oneai-debian-relay "$@"

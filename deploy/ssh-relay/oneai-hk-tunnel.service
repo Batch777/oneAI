@@ -1,0 +1,9 @@
+[Unit]
+Description=oneAI private Debian SSH tunnel through Hong Kong
+StartLimitIntervalSec=0
+[Service]
+ExecStart=/usr/bin/ssh -NT -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=%h/.config/oneai/hk_known_hosts -o ExitOnForwardFailure=yes -o ConnectTimeout=10 -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -i %h/.ssh/oneai_hk_tunnel -R 127.0.0.1:22390:127.0.0.1:22 oneai-tunnel@47.82.117.21
+Restart=always
+RestartSec=5
+[Install]
+WantedBy=default.target

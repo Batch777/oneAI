@@ -1,7 +1,7 @@
 const test=require('node:test'),assert=require('node:assert/strict'),vm=require('node:vm'),fs=require('node:fs');
 const source=fs.readFileSync('oneai/web/static/app.js','utf8');
 function setup(){
- const listeners={},indicator={hidden:true,classList:{add(){},remove(){}},setAttribute(){}},state={page:'tasks',editing:false};let count=0,resolve;
+ const listeners={},indicator={hidden:true,style:{setProperty(){}},classList:{add(){},remove(){},toggle(){}},setAttribute(){}},state={page:'tasks',editing:false};let count=0,resolve;
  const c=vm.createContext({state,refreshRequest:null,matchMedia:()=>({matches:true}),text:()=>indicator,
  document:{body:{append(){}},addEventListener:(n,f)=>listeners[n]=f,querySelector:()=>null},$:()=>({hidden:false}),
  refreshWorkspace:()=>{count++;return new Promise(r=>resolve=r);}});

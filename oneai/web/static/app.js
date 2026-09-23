@@ -173,8 +173,21 @@ document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshWor
 window.addEventListener('pageshow',event=>{if(event.persisted)refreshWorkspace(false);});
 function installPullRefresh(){
  const indicator=text('div','','pull-refresh');indicator.hidden=true;indicator.setAttribute('role','status');document.body.append(indicator);
- let gesture=null;
- const reset=()=>{gesture=null;if(!refreshRequest)indicator.hidden=true;};
+ let gesture=null,animationVersion=0;
+ const show=(distance,loading=false)=>{
+  animationVersion++;indicator.getAnimations?.().forEach(a=>a.cancel());indicator.hidden=false;
+  const progress=Math.min(distance/80,1),travel=Math.min(distance*.45,44);
+  indicator.style.setProperty('--pull-travel',travel+'px');indicator.style.setProperty('--pull-progress',String(progress));
+  indicator.style.setProperty('--pull-turn',(progress*300)+'deg');indicator.classList.toggle('is-ready',distance>=80);
+  indicator.classList.toggle('is-loading',loading);
+ };
+ const hide=()=>{
+  const version=++animationVersion;
+  const motion=!matchMedia('(prefers-reduced-motion:reduce)').matches;
+  const animation=motion&&indicator.animate?.([{opacity:1},{opacity:0,transform:'translate(-50%, -12px) scale(.85)'}],{duration:180,easing:'ease-out'});
+  if(animation)animation.finished.catch(()=>{}).then(()=>{if(version===animationVersion)indicator.hidden=true;});else indicator.hidden=true;
+ };
+ const reset=()=>{gesture=null;if(!refreshRequest)hide();};
  const atTop=target=>{for(let el=target;el;el=el.parentElement)if(el.scrollTop>1)return false;return true;};
  document.addEventListener('touchstart',e=>{
   reset();const target=e.target;
@@ -186,14 +199,14 @@ function installPullRefresh(){
   const dx=e.touches[0].clientX-gesture.x,dy=e.touches[0].clientY-gesture.y;
   if(Math.abs(dx)>Math.max(12,Math.abs(dy))||dy<0||!atTop(gesture.target)){reset();return;}
   if(dy<12)return;if(!e.cancelable){reset();return;}e.preventDefault();gesture.distance=dy;
-  indicator.hidden=false;indicator.textContent=dy>=80?'松开刷新':'下拉刷新';indicator.classList.remove('is-loading');
+  show(dy);indicator.textContent=dy>=80?'松开刷新':'下拉刷新';
  },{passive:false});
  document.addEventListener('touchend',async e=>{
   if(!gesture)return;const distance=gesture.distance;gesture=null;
   if(distance>12&&e.cancelable)e.preventDefault();
-  if(distance<80){indicator.hidden=true;return;}
-  indicator.hidden=false;indicator.textContent='正在刷新…';indicator.classList.add('is-loading');
-  try{await refreshWorkspace();}finally{indicator.hidden=true;indicator.classList.remove('is-loading');}
+  if(distance<80){hide();return;}
+  show(80,true);indicator.textContent='正在刷新…';
+  try{await refreshWorkspace();}finally{hide();}
  },{passive:false});
  document.addEventListener('touchcancel',reset,{passive:true});
 }

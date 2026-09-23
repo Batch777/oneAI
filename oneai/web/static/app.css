@@ -42,3 +42,10 @@ html,body,body *{touch-action:manipulation}
 .pull-refresh.is-loading::before{content:"";display:inline-block;width:12px;height:12px;margin-right:8px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:list-spin .8s linear infinite;vertical-align:middle}
 @media(max-width:760px){html{overscroll-behavior-y:none}}
 @media(prefers-reduced-motion:reduce){.pull-refresh.is-loading::before{animation:none}}
+
+/* Gesture progress stays in the presentation layer. */
+.pull-refresh{transform:translate(-50%,calc(var(--pull-travel,0px) - 18px)) scale(calc(.88 + var(--pull-progress,0)*.12));opacity:calc(.35 + var(--pull-progress,0)*.65);will-change:transform,opacity}
+.pull-refresh::before{content:"";display:inline-block;width:14px;height:14px;margin-right:8px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;vertical-align:middle;transform:rotate(var(--pull-turn,0deg))}
+.pull-refresh.is-ready{color:var(--green);border-color:#aabea3;background:#f0f5ed}
+.pull-refresh.is-loading{transition:transform .18s ease,opacity .18s ease;opacity:1}
+@media(prefers-reduced-motion:reduce){.pull-refresh{transform:translateX(-50%);transition:none}.pull-refresh::before{transform:none}}
