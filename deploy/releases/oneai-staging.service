@@ -1,0 +1,10 @@
+[Unit]
+Description=oneAI isolated release acceptance service
+[Service]
+ExecStart=%h/oneAI/deploy/releases/run-staging.sh
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+[Install]
+WantedBy=default.target

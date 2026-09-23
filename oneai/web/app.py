@@ -341,6 +341,11 @@ def create_app(cfg=None,origin=None,dev=False):
     from ..sessions.routes import mount
     mount(app, cfg, authenticated, body)
 
+    @app.get('/api/version')
+    def release_version():
+        value=os.environ.get('ONEAI_RELEASE_COMMIT','')
+        return {'commit':value if re.fullmatch(r'[0-9a-f]{40}',value) else 'development','api':1}
+
     @app.get('/')
     def home(): return FileResponse(STATIC/'index.html')
 
