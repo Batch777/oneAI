@@ -2,6 +2,10 @@
 
 更新：2026-09-23。本次实现角色提示词、模型目录/选择、用量快照和 Git 审计清单。Mix 的角色与交接契约可用；自动模型间调度、额度硬熔断与自动生产发布仍未实现。
 
+## 当前默认分工
+
+用户已改为 Astra 监工 + Sol 实现：`codex/gpt-6-astra/high/supervisor` → `codex/gpt-6-sol/high/implementer`。沿用显式交接、单工作区单实现者和独立审查；未启用自动调度或自动发布。K3 不再是默认实现者；pi 适配器仍可用于其他任务。原 K3 执行失败的历史记录保留，不改写为 Sol 的产物。
+
 ## 日常入口
 
 会话 → ＋新会话：选择执行主机、运行时、工作空间、角色、模型与思考强度。角色提示词可展开查看；已创建会话也能查看同一角色的版本化规范。运行中的会话不能切换模型；空闲时“模型、用量与审计 → 应用到下一轮”。切换不复制历史、不新建 native thread；长期跨模型任务可新建以管理缓存。
@@ -16,7 +20,7 @@
 flowchart LR
   U[用户需求] --> A[Codex / GPT-6 Astra\n规划和 spec]
   A --> C[任务合同\n基线、路径、验收、轮数]
-  C --> K[pi / Kimi K3-256K\n实现和测试]
+  C --> K[Codex / GPT-6 Sol\n实现和测试]
   K --> E[Git commit / diff\n文件作用 / 测试证据]
   E --> R[Astra 独立审查]
   R -->|最多两轮修改建议| C
@@ -26,7 +30,7 @@ flowchart LR
 
 路由声明位于 `config/mix-model.json`。当前通过文件合同和会话消息显式交接，没有声称已把模型自动串成后台循环。它保留可替换 Runtime/Role/Model 三层：协议适配负责 RPC，Role 负责产物合同，Model 来自目录；未来 Coordinator 复用现有命令幂等和事件日志，避免把特定模型写死在任务核心。
 
-默认让 Astra 只做规划和最终审查，K3-256K 做普通实现；需要大上下文时显式选择 K3。节约程度需按实际任务评测，不能用静态价格表承诺账单节省。
+默认让 Astra 做规划和最终审查，Sol 做实现和测试，使用独立 Codex 会话。两者共享账号额度，不能把它们当独立订阅配额。小型任务使用短合同；成本需按实际任务评测，不能承诺固定节省比例。
 
 后续自动 Coordinator 的任务记录应包含 `task_id, spec_digest, base_sha, allowed_paths, stage, supervisor_session_id, implementer_session_id, revision_round, budget_policy, latest_review_digest`。状态只允许 spec → implementation → review → human_review；修复最多两轮。每阶段发出唯一 command_id，重启不重发不确定写操作；一个 worktree 只允许一个实现者写入。计划中的租约/隔离/硬预算尚未完成前，不开放无人值守自动循环。
 
@@ -62,7 +66,7 @@ Codex 订阅没有可直接推算本会话账单的价格；pi 的 `cost` 来自
 - Linux pi 0.87.1 随包 `docs/rpc-commands.md`：get_available_models、set_model、set_thinking_level、get_session_stats；没有升级 harness 来凑接口。
 - [Kimi 模型配置](https://www.kimi.com/code/docs/en/kimi-code/models.html)：K3 模型 ID、上下文及订阅权限差异。
 
-## 线上验收（2026-09-23）
+## 历史线上验收：Astra / K3（2026-09-23，已被当前分工替代）
 
 - 生产版本 `a2f82ff`，Linux 主仓库与开发 worktree 已同步。旧的两条测试会话已关闭并从列表移除，数据库备份和原始审计历史保留。
 - 正式入口 **oneAI 自迭代 · Astra 监工**：`6deab7c7afc1417fa13e7814c249e55a`，`gpt-6-astra / high / supervisor`。

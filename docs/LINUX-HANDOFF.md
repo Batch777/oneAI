@@ -16,4 +16,4 @@ SSH：Linux systemd 用户隧道经香港回环 22390；已启用 linger。Mac �
 
 ## 2026-09-23 自迭代入口更新
 
-原始测试会话已经关闭并从 oneAI 列表移除。使用 **oneAI 自迭代 · Astra 监工** 规划/spec/审查，使用 **oneAI 自迭代 · K3 实现** 实现/测试；均已读过本仓库 AGENTS.md 并等待新任务。模型、角色、用量与审计用法以 [SELF-DEVELOPMENT.md](SELF-DEVELOPMENT.md) 为准；Mix 当前显式交接，不自动循环或发布。
+原始测试会话已经关闭并从 oneAI 列表移除。使用 **oneAI 自迭代 · Astra 监工** 规划/spec/审查，使用 **oneAI 自迭代 · Sol 实现** 实现/测试。当前默认路由为两个独立 Codex 会话，原 K3 实现会话退役并保留历史。模型、角色、用量与审计用法以 [SELF-DEVELOPMENT.md](SELF-DEVELOPMENT.md) 为准；Mix 当前显式交接，不自动循环或发布。

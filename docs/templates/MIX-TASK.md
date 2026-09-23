@@ -3,7 +3,7 @@
 - 任务 ID / 目的：
 - 用户可见的验收结果：
 - 仓库、工作区、分支、base_sha：
-- 监工：Codex / gpt-6-astra；实现者：pi / kimi-coding/k3-256k
+- 监工：Codex / gpt-6-astra；实现者：Codex / gpt-6-sol
 - 允许修改的文件/目录（明确列出）：
 - 禁止范围 / 必须保持的兼容性：
 - 实现步骤和边界情况：
