@@ -12,6 +12,8 @@ from pathlib import Path
 import subprocess
 import threading
 import uuid
+from .telemetry import codex_usage, pi_usage, quota
+from .profiles import instructions
 
 
 class JsonLines:
@@ -92,8 +94,9 @@ class JsonLines:
 
 
 class Codex:
-    def __init__(self, binary, cwd, directory, emit, remote_id=None, policy="workspace"):
+    def __init__(self, binary, cwd, directory, emit, remote_id=None, policy="workspace", settings=None):
         if policy not in ("workspace", "full"): raise ValueError("invalid_runtime_policy")
+        self.settings=dict(settings or {}); self.usage_dirty=True
         self.emit, self.turn = emit, None
         self.settled = threading.Event()
         self.settled.set()
@@ -106,10 +109,14 @@ class Codex:
             params = {'cwd': str(cwd), 'approvalPolicy': 'on-request', 'approvalsReviewer': 'user', 'sandbox': 'workspace-write'}
             if policy == 'full':
                 params.update(approvalPolicy='never', sandbox='danger-full-access')
+            if self.settings.get('model'):params['model']=self.settings['model']
+            prompt=instructions(self.settings.get('profile','general'))
+            if prompt:params['developerInstructions']=prompt
             if remote_id:
                 params['threadId'] = remote_id
             result = self.rpc.request('thread/resume' if remote_id else 'thread/start', params)
             self.remote_id = result['thread']['id']
+            self.emit('model',{'model':result.get('model') or self.settings.get('model'),'effort':self.settings.get('effort'),'profile':self.settings.get('profile','general'),'effective_from':'current'})
         except Exception:
             self.rpc.close()
             raise
@@ -127,11 +134,18 @@ class Codex:
             else:
                 self.rpc.send({'id': value['id'], 'error': {'code': -32601, 'message': 'Unsupported interactive request'}})
             self.emit('error', {'message': '本版尚未开放此交互授权，操作已拒绝。', 'request_type': method})
+        elif method == 'thread/tokenUsage/updated':
+            self.emit('usage',codex_usage(params.get('tokenUsage') or {}))
+        elif method == 'account/rateLimits/updated':
+            self.emit('quota',quota(params))
+        elif method == 'model/rerouted':
+            self.emit('model',{'model':params.get('toModel'),'requested_model':params.get('fromModel'),'effective_from':'rerouted','reason':params.get('reason')})
         elif method == 'turn/started':
             self.turn = params['turn']['id']
             self.emit('status', {'state': 'running'})
         elif method == 'turn/completed':
             self.turn = None
+            self.usage_dirty=True
             self.settled.set()
             error = params.get('turn', {}).get('error')
             if error:
@@ -151,7 +165,11 @@ class Codex:
         self.started.clear()
         self.settled.clear()
         try:
-            self.rpc.request('turn/start', {'threadId': self.remote_id, 'input': [{'type': 'text', 'text': text}]}, on_sent=on_sent)
+            params={'threadId':self.remote_id,'input':[{'type':'text','text':text}]}
+            if self.settings.get('model'):params['model']=self.settings['model']
+            if self.settings.get('effort'):params['effort']=self.settings['effort']
+            result=self.rpc.request('turn/start',params,on_sent=on_sent)
+            self.emit('model',{'model':self.settings.get('model'),'effort':self.settings.get('effort'),'profile':self.settings.get('profile','general'),'effective_from':'current'})
         finally:
             self.started.set()
 
@@ -166,22 +184,35 @@ class Codex:
         elif not self.settled.is_set():
             raise RuntimeError('turn_state_unknown')
 
+    def configure(self,settings):
+        self.settings=dict(settings)
+        self.emit('model',{'model':settings.get('model'),'effort':settings.get('effort'),'profile':settings.get('profile','general'),'effective_from':'next_turn'})
+
+    def collect(self):
+        self.emit('quota',quota(self.rpc.request('account/rateLimits/read',timeout=10)))
+
     def close(self):
         self.rpc.close()
 
 
 class Pi:
-    def __init__(self, binary, cwd, directory, emit, remote_id=None, policy="workspace"):
+    def __init__(self, binary, cwd, directory, emit, remote_id=None, policy="workspace", settings=None):
         if policy not in ("workspace", "full"): raise ValueError("invalid_runtime_policy")
-        self.emit = emit
+        self.emit = emit; self.settings=dict(settings or {}); self.usage_dirty=True
         directory = Path(directory)
         directory.mkdir(parents=True, exist_ok=True)
         self.remote_id = remote_id or str(directory/'session.jsonl')
-        self.rpc = JsonLines([binary, '--mode', 'rpc', '--session', self.remote_id,
+        extra=[]
+        prompt=instructions(self.settings.get('profile','general'))
+        if prompt:
+            prompt_file=directory/'profile.md';prompt_file.write_text(prompt);prompt_file.chmod(0o600)
+            extra=['--append-system-prompt',str(prompt_file)]
+        self.rpc = JsonLines([binary, '--mode', 'rpc', '--session', self.remote_id,*extra,
                               '--no-extensions', '--no-prompt-templates', '--no-skills', '--no-themes',
                               '--no-approve', '--tools', 'read,bash,edit,write,grep,find,ls' if policy == 'full' else 'read,grep,find,ls'], cwd, self.event)
         try:
-            self.rpc.request('get_state', pi=True)
+            if self.settings:self.configure(self.settings)
+            else:self.report_model(self.rpc.request('get_state',pi=True))
         except Exception:
             self.rpc.close()
             raise
@@ -193,6 +224,7 @@ class Pi:
         elif kind == 'agent_start':
             self.emit('status', {'state': 'running'})
         elif kind == 'agent_settled':
+            self.usage_dirty=True
             self.emit('status', {'state': 'idle'})
         elif kind == 'message_update':
             event = value.get('assistantMessageEvent', {})
@@ -205,6 +237,25 @@ class Pi:
                                'text': str(value.get('result', ''))[:8000]})
         elif kind == 'extension_ui_request':
             self.rpc.send({'type': 'extension_ui_response', 'id': value['id'], 'cancelled': True})
+
+    def report_model(self,state):
+        model=state.get('model') or {}
+        self.emit('model',{'model':model.get('provider','')+'/'+model.get('id',''),'effort':state.get('thinkingLevel'),'profile':self.settings.get('profile','general'),'effective_from':'current'})
+
+    def configure(self,settings):
+        self.settings=dict(settings)
+        value=settings.get('model')
+        if value:
+            provider,sep,model=value.partition('/')
+            if not sep:raise ValueError('pi_model_requires_provider')
+            actual=self.rpc.request('set_model',{'provider':provider,'modelId':model},pi=True)
+            if actual.get('provider')!=provider or actual.get('id')!=model:raise ValueError('model_selection_mismatch')
+        if settings.get('effort'):self.rpc.request('set_thinking_level',{'level':settings['effort']},pi=True)
+        self.report_model(self.rpc.request('get_state',pi=True))
+        self.usage_dirty=True
+
+    def collect(self):
+        self.emit('usage',pi_usage(self.rpc.request('get_session_stats',pi=True,timeout=10)))
 
     def prompt(self, text, on_sent=None):
         self.rpc.request('prompt', {'message': text}, pi=True, timeout=3600, on_sent=on_sent)

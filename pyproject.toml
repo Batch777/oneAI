@@ -32,3 +32,4 @@ include = ["oneai*", "connectors*"]
 
 [tool.setuptools.package-data]
 "oneai.web" = ["static/*"]
+"oneai.sessions" = ["prompts/*.md"]

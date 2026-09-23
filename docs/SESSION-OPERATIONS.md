@@ -108,3 +108,7 @@ oneai sessions --server https://your-relay.example
 - **接管现有桌面会话**：当前仅只读同步。共享控制端点或正式交接完成前，不支持手机对该活跃桌面会话发指令。
 
 备份时保留中转 `sessions.sqlite`、Host 的身份数据库及待上传队列；主机私钥/令牌按凭证管理，不进入资料索引。版本回滚需要同时检查 SQLite schema；不能只覆盖代码而忽略状态兼容性。
+
+## 模型、角色与审计（2026-09-23）
+
+新增可审阅角色提示词、模型/努力级别选择、会话用量与账号额度、变更审计清单、关闭后移除测试会话。当前自迭代与 Mix 入口见 [SELF-DEVELOPMENT.md](SELF-DEVELOPMENT.md)。

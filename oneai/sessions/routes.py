@@ -26,6 +26,17 @@ def mount(app, cfg, authenticated, body):
         enabled()
         return {'items': store.hosts()}
 
+    @app.get('/api/agent/catalog')
+    def catalog(user=Depends(authenticated)):
+        enabled()
+        return {'items':store.catalogs()}
+
+    @app.post('/api/agent-host/catalog')
+    async def publish_catalog(request:Request,hid=Depends(host)):
+        try:
+            store.publish_catalog(hid,await body(request));return {'ok':True}
+        except (ValueError,TypeError,KeyError) as error:raise HTTPException(409,str(error))
+
     @app.get('/api/agent/sessions')
     def sessions(user=Depends(authenticated)):
         enabled()

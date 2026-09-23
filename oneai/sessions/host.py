@@ -32,6 +32,7 @@ class Host:
         ''')
         if 'prompted' not in {r[1] for r in self.db.execute('PRAGMA table_info(runtimes)')}:
             self.db.execute('ALTER TABLE runtimes ADD COLUMN prompted INTEGER NOT NULL DEFAULT 0')
+        self.db.execute('CREATE TABLE IF NOT EXISTS session_baselines(id TEXT PRIMARY KEY,base_sha TEXT NOT NULL)')
         self.db.commit()
         self.runtimes = {}
         self.runtime_lock = threading.RLock()
@@ -39,6 +40,7 @@ class Host:
         self.futures = {}
         self.pending_starts = {}
         self.stopping = False
+        self.metadata_at=0;self.metadata_future=None;self.metrics_at={}
         self.observers = {}
         self.observed_at = 0
         for sid, *_ in self.db.execute('SELECT * FROM runtimes').fetchall():
@@ -95,10 +97,20 @@ class Host:
             raise ValueError('runtime_identity_conflict')
         if len(self.runtimes) >= self.config.get('max_sessions', 4):
             raise ValueError('执行主机已达到并发会话上限，请先关闭一个会话。')
+        settings=command.get('settings') or {}
+        profile=settings.get('profile','general')
+        if profile!='general' and workspace not in self.config.get('profiles',{}).get(profile,[]):raise ValueError('host_profile_rejected')
+        from .audit import baseline
+        with self.lock:
+            if not self.db.execute('SELECT 1 FROM session_baselines WHERE id=?',(sid,)).fetchone():
+                try:sha=baseline(cwd)
+                except Exception:sha=''
+                self.db.execute('INSERT INTO session_baselines VALUES(?,?)',(sid,sha));self.db.commit()
         binary = self.config['binaries'][provider]
         runtime = ADAPTERS[provider](binary, cwd, self.directory/sid,
                                     lambda k, p: self.emit(sid, k, p), existing[3] if existing and existing[4] else None,
-                                    **({'policy': self.config['runtime_policy']} if 'runtime_policy' in self.config else {}))
+                                    **({'policy': self.config['runtime_policy']} if 'runtime_policy' in self.config else {}),
+                                    **({'settings':settings} if settings else {}))
         with self.lock:
             self.db.execute('INSERT OR REPLACE INTO runtimes VALUES(?,?,?,?,?)',
                             (sid, provider, workspace, runtime.remote_id, existing[4] if existing else 0))
@@ -122,7 +134,16 @@ class Host:
                 if pending and not pending.wait(50):
                     raise RuntimeError('prompt_dispatch_unconfirmed')
             runtime = self.runtime(command)
-            if action in ('create', 'resume'):
+            if action == 'configure':
+                runtime.configure(command['settings'])
+                self.emit(sid,'status',{'state':'idle','command_id':cid})
+            elif action == 'audit':
+                from .audit import build
+                with self.lock:base=self.db.execute('SELECT base_sha FROM session_baselines WHERE id=?',(sid,)).fetchone()[0]
+                value=build(Path(self.config['workspaces'][command['workspace']]),base,command['payload']['purpose'])
+                self.emit(sid,'audit',value);self.emit(sid,'status',{'state':'idle','command_id':cid})
+            elif action in ('create', 'resume'):
+
                 self.emit(sid, 'runtime', {'provider': command['provider'], 'remote_id': runtime.remote_id})
                 self.emit(sid, 'status', {'state': 'idle', 'command_id': cid})
             elif action == 'prompt':
@@ -157,7 +178,21 @@ class Host:
             except Exception as error:
                 self.emit(sid, 'error', {'message': '桌面会话同步失败：'+str(error)[:500]})
 
+    def metadata(self):
+        now=time.monotonic()
+        if now-self.metadata_at>600:
+            from .catalog import discover
+            try:self.request('catalog',discover(self.config));self.metadata_at=now
+            except Exception:print('Model catalog unavailable',flush=True);self.metadata_at=now-540
+        for sid,runtime in list(self.runtimes.items()):
+            if now-self.metrics_at.get(sid,0)<60 and not getattr(runtime,'usage_dirty',False):continue
+            try:
+                runtime.collect();runtime.usage_dirty=False;self.metrics_at[sid]=now
+            except Exception:self.metrics_at[sid]=now;runtime.usage_dirty=False
+
     def step(self):
+        if self.config.get('model_catalog') and (self.metadata_future is None or self.metadata_future.done()):
+            self.metadata_future=self.pool.submit(self.metadata)
         self.observe()
         self.flush()
         command = self.request('poll', {})['command']

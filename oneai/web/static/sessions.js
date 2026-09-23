@@ -24,6 +24,7 @@ async function loadSessions(){
   try{
     const [hosts,sessions]=await Promise.all([api('/agent/hosts'),api('/agent/sessions')]);
     sessionView.hosts=hosts.items;sessionView.items=sessions.items;
+    if(typeof loadSessionCatalog==='function')await loadSessionCatalog();
     const hostSelect=document.querySelector('#session-host');
     const before=hostSelect.value;
     hostSelect.replaceChildren();
@@ -41,6 +42,7 @@ async function loadSessions(){
     const noHosts='尚未连接执行主机。请先在服务器注册主机，再运行 oneAI 会话服务。';
     if(!hosts.items.length)sessionNotice(noHosts);
     else if(document.querySelector('#session-notice').textContent===noHosts)sessionNotice('执行主机已连接，可以选择会话继续。');
+    if(sessionView.selected&&!sessions.items.some(x=>x.id===sessionView.selected)){sessionView.selected=null;sessionView.rendered=null;localStorage.removeItem('oneai.session.selected');document.querySelector('#session-title').textContent='选择会话';document.querySelector('#session-transcript').replaceChildren();document.querySelector('#session-send').disabled=true;document.querySelector('#session-stop').disabled=true;document.querySelector('#session-close').disabled=true;document.querySelector('#session-controls')?.setAttribute('hidden','');}
     if(sessionView.selected)await renderSession();
     document.querySelector('#session-retry').hidden=!localStorage.getItem('oneai.session.pending');
   }catch(error){sessionNotice(error.message==='sessions_not_enabled'?'会话控制尚未启用。管理员启用并连接执行主机后即可使用。':error.message);}
@@ -54,6 +56,7 @@ function refreshSessionCapabilities(){
     if(values.includes(before))select.value=before;
   }
   document.querySelector('#session-create').disabled=!host||!host.capabilities.providers.length;
+  if(typeof refreshSessionModelOptions==='function')refreshSessionModelOptions();
 }
 function selectSession(id){
   sessionView.selected=id;sessionView.cursor=0;sessionView.rendered=null;
@@ -80,6 +83,7 @@ async function renderSession(){
     document.querySelector('#session-transcript').replaceChildren();
     document.querySelector('#session-message').value=localStorage.getItem('oneai.session.draft.'+row.id)||'';
   }
+  if(typeof renderSessionControls==='function')renderSessionControls(row);
   const id=row.id,sequence=++sessionView.renderSeq;
   const result=await api('/agent/sessions/'+id+'/events?after='+sessionView.cursor);
   if(sessionView.selected!==id||sessionView.renderSeq!==sequence)return;
@@ -108,7 +112,7 @@ async function renderSession(){
 document.querySelector('#session-host').onchange=refreshSessionCapabilities;
 document.querySelector('#session-new-form').onsubmit=async event=>{
   event.preventDefault();const button=document.querySelector('#session-create');button.disabled=true;
-  try{const result=await sessionCommand({id:crypto.randomUUID(),action:'create',title:document.querySelector('#session-new-title').value||'新会话',host_id:document.querySelector('#session-host').value,provider:document.querySelector('#session-provider').value,workspace:document.querySelector('#session-workspace').value});sessionNotice('会话已保存，等待执行主机。');selectSession(result.session_id);}catch(error){sessionNotice(error.message);}finally{button.disabled=false;}
+  try{const result=await sessionCommand({id:crypto.randomUUID(),action:'create',title:document.querySelector('#session-new-title').value||'新会话',host_id:document.querySelector('#session-host').value,provider:document.querySelector('#session-provider').value,workspace:document.querySelector('#session-workspace').value,...(typeof newSessionSettings==='function'?{settings:newSessionSettings()}: {})});sessionNotice('会话已保存，等待执行主机。');selectSession(result.session_id);}catch(error){sessionNotice(error.message);}finally{button.disabled=false;}
 };
 document.querySelector('#session-message').oninput=event=>{if(sessionView.selected)localStorage.setItem('oneai.session.draft.'+sessionView.selected,event.target.value);};
 document.querySelector('#session-compose').onsubmit=async event=>{

@@ -357,7 +357,7 @@ def create_app(cfg=None,origin=None,dev=False):
 
     @app.get('/{name}')
     def static(name:str):
-        if name not in ('app.js','plugins.js','updates.js','mail.js','sessions.js','app.css','sw.js','manifest.webmanifest','icon.svg','icon-192.png','icon-512.png','apple-touch-icon.png'): raise HTTPException(404)
+        if name not in ('app.js','session-controls.js','plugins.js','updates.js','mail.js','sessions.js','app.css','sw.js','manifest.webmanifest','icon.svg','icon-192.png','icon-512.png','apple-touch-icon.png'): raise HTTPException(404)
         return FileResponse(STATIC/name)
 
     return app

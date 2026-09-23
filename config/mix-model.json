@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "mode": "explicit_handoff",
+  "roles": {
+    "supervisor": {"runtime": "codex", "model": "gpt-6-astra", "effort": "high", "profile": "supervisor"},
+    "implementer": {"runtime": "pi", "model": "kimi-coding/k3-256k", "effort": "high", "profile": "implementer"}
+  },
+  "stages": ["spec", "implementation", "review", "human_review"],
+  "max_revision_rounds": 2,
+  "automatic_dispatch": false,
+  "automatic_deploy": false,
+  "fallback": "stop_and_report_unavailable",
+  "handoff_template": "docs/templates/MIX-TASK.md",
+  "review_template": "docs/templates/CHANGE-REVIEW.md"
+}
