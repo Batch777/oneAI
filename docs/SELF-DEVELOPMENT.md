@@ -75,3 +75,12 @@ Codex 订阅没有可直接推算本会话账单的价格；pi 的 `cost` 来自
 - UI 配置切换 Astra → Sol → Astra 收到执行端回执；未向 Sol 发送模型任务，最终保留用户指定的 Astra 监工。原 native 会话没有更换。
 - 实际 audit 请求列出准确基线/HEAD、干净工作区、无变更文件及摘要；不会将“无变更”伪造为可发布代码。有文件改动及未跟踪文件的摘要变化通过 Git 集成测试覆盖。
 - 本地主路径 Python 198 项、前端 Node 31 项通过；Linux 会话/模型/Web 48 项通过。390px 手机宽度下无横向溢出，模型/强度选择器宽度受卡片约束，审计提示词可换行。
+
+## Astra / Sol 切换验收（2026-09-23）
+
+- 默认分工配置、AGENTS.md、监工/实现者/公共提示词及任务模板已更新；Linux Codex Host 已允许 implementer，pi 不再公布该默认角色。
+- 正式 Sol 会话：`e893f465808d4a20b1d24142902bc7ab`，名称 **oneAI 自迭代 · Sol 实现**，`gpt-6-sol / high / implementer`。实测调用 shell 读取 Git 与角色配置，返回 `SOL_IMPLEMENTER_READY`；基线 `37096b3`、工作区干净，未修改项目。
+- Astra 沿用 `6deab7c7afc1417fa13e7814c249e55a`，Host 重启后已通过停止/核对流程恢复 idle，加载更新后的监工指令，历史保留。
+- 原 K3 `292000830713443caff22712ab01bd23` 已关闭并从列表移除；原始记录与审计保留。pi Host 仍可用于其他任务，不删除运行时适配器。
+- Mac 和 Linux 的 `tests/core/test_session_controls.py` 均 9/9 通过。此次没有前端布局变更，无需重做多尺寸或原生 App 安装；公网已显示两个独立 Codex 入口。
+- 仍为显式交接；本次只验证新实现会话的模型调用和工具读取，不声称已完成新的代码生产任务或自动发布。
