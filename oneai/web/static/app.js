@@ -234,7 +234,7 @@ async function loadPushState(){
  const subscription=await pushRegistration.pushManager.getSubscription();
  const enabled=pushConfig.subscribed&&!!subscription&&Notification.permission==='granted';
  $('#push-enable').disabled=!pushConfig.configured||enabled;$('#push-disable').disabled=!subscription&&!pushConfig.subscribed;
- status.textContent=!pushConfig.configured?'云端推送尚未配置。':enabled?'通知订阅已开启。可在收到新验证邮件后并检查锁屏实际显示。':Notification.permission==='denied'?'通知被系统拒绝，请到浏览器或系统设置允许后重试。':'点击开启，系统会请求通知权限。';
+ status.textContent=!pushConfig.configured?'云端推送尚未配置。':enabled?'通知订阅已开启。收到新验证邮件后，可检查锁屏显示。':Notification.permission==='denied'?'通知被系统拒绝，请到浏览器或系统设置允许后重试。':'点击开启，系统会请求通知权限。';
  if(pushConfig.last)status.textContent+=' 最近推送：'+({sent:'服务商已接收（不代表设备已显示）',pending:'等待发送',sending:'正在发送',failed:'发送失败',expired:'已过期',cancelled:'已取消'}[pushConfig.last.status]||pushConfig.last.status);
 }
 $('#push-enable').onclick=async()=>{try{const key=Uint8Array.from(atob(pushConfig.public_key.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0));const subscription=await pushRegistration.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:key});await api('/push/subscribe',{method:'POST',body:JSON.stringify(subscription.toJSON())});await loadPushState();}catch(e){$('#push-status').textContent='未能开启通知：'+e.message;}};

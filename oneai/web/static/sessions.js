@@ -1,6 +1,6 @@
 'use strict';
 // Shared by browser, iPhone and Mac WKWebView. No runtime-specific UI protocol.
-const sessionView = {selected:localStorage.getItem('oneai.session.selected'), items:[], hosts:[], cursor:0, loading:false, rendered:null};
+const sessionView = {selected:localStorage.getItem('oneai.session.selected'), items:[], hosts:[], cursor:0, loading:false, rendered:null, renderSeq:0};
 const sessionLabels = {starting:'正在启动',idle:'等待消息',queued:'等待执行主机',running:'正在处理',stopping:'正在停止',unknown:'需要核对状态',failed:'启动失败',closing:'正在关闭',closed:'已关闭',observing:'桌面会话 · 只读同步'};
 const sessionPage = document.querySelector('#sessions-page');
 function sessionNotice(message){document.querySelector('#session-notice').textContent=message;}
@@ -60,7 +60,8 @@ function selectSession(id){
   localStorage.setItem('oneai.session.selected',id);
   document.querySelector('#session-transcript').replaceChildren();
   document.querySelector('#session-message').value=localStorage.getItem('oneai.session.draft.'+id)||'';
-  loadSessions();
+  // Switch visible identity immediately, even during a background refresh.
+  renderSession().catch(error=>sessionNotice(error.message));
 }
 async function renderSession(){
   const row=sessionView.items.find(s=>s.id===sessionView.selected);if(!row)return;
@@ -79,9 +80,9 @@ async function renderSession(){
     document.querySelector('#session-transcript').replaceChildren();
     document.querySelector('#session-message').value=localStorage.getItem('oneai.session.draft.'+row.id)||'';
   }
-  const id=row.id;
+  const id=row.id,sequence=++sessionView.renderSeq;
   const result=await api('/agent/sessions/'+id+'/events?after='+sessionView.cursor);
-  if(sessionView.selected!==id)return;
+  if(sessionView.selected!==id||sessionView.renderSeq!==sequence)return;
   const box=document.querySelector('#session-transcript');
   const atBottom=box.scrollTop+box.clientHeight>=box.scrollHeight-70;
   for(const event of result.items){
@@ -113,7 +114,7 @@ document.querySelector('#session-message').oninput=event=>{if(sessionView.select
 document.querySelector('#session-compose').onsubmit=async event=>{
   event.preventDefault();const row=sessionView.items.find(s=>s.id===sessionView.selected);if(!row)return;
   const button=document.querySelector('#session-send');button.disabled=true;
-  try{await sessionCommand({id:crypto.randomUUID(),action:'prompt',session_id:row.id,revision:row.revision,text:document.querySelector('#session-message').value});localStorage.removeItem('oneai.session.draft.'+row.id);document.querySelector('#session-message').value='';sessionNotice('消息已保存。');await loadSessions();}catch(error){sessionNotice(error.message==='stale_session'?'另一台设备已经更新了会话，请刷新核对后再发送。':error.message);await loadSessions();}
+  try{await sessionCommand({id:crypto.randomUUID(),action:'prompt',session_id:row.id,revision:row.revision,text:document.querySelector('#session-message').value});localStorage.removeItem('oneai.session.draft.'+row.id);if(sessionView.selected===row.id)document.querySelector('#session-message').value='';sessionNotice('消息已保存。');await loadSessions();}catch(error){sessionNotice(error.message==='stale_session'?'另一台设备已经更新了会话，请刷新核对后再发送。':error.message);await loadSessions();}
 };
 for(const [id,action] of [['session-stop','interrupt'],['session-close','close']])document.querySelector('#'+id).onclick=async()=>{
   const row=sessionView.items.find(s=>s.id===sessionView.selected);if(!row)return;

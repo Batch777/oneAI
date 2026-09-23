@@ -29,7 +29,7 @@ oneAI 自开发使用 `~/oneai-data/owner/workspaces/oneAI`，分支 `codex/mobi
 目前仍有必须明确的缺口：
 
 - `ADAPTERS` 和服务端 provider 白名单仍为内置注册，已有独立 action 插件 Registry/Runner、Linux 本地安装及设置页启停/调用。Codex/pi 仍为内置 Adapter；完整提案中的网关与第三方沙箱未实现。
-- Codex 可在 workspace-write 内开发；额外权限审批当前拒绝，尚无手机审批卡片。pi 此入口只开放 read/grep/find/ls，关闭自动扩展加载，不开放任意 shell。
+- 两个 Linux 托管入口经用户授权改为完整工具策略：Codex danger-full-access / never，pi 提供 bash、读写与检索工具，权限属于 steven。pi 自动扩展发现继续关闭，oneAI 插件单独安装和启停。其他 Host 默认策略不变。
 - 插件第一阶段应实现 manifest/API 版本校验、受控本地注册及契约测试，再将内置 Codex/pi 迁入同一 registry；第二阶段才开放独立进程插件、能力白名单、升级排空和故障隔离。接口与权限细节见 [PLUGIN-SPEC.md](PLUGIN-SPEC.md)。
 - 现有独立 Host 凭证隔离的是主机派发与事件写入，手机仍是单人设备共享权限；未完成 tenant、OS 用户隔离前不开放多用户注册。
 - “检查更新”检查已部署的界面版本，不等于允许从手机将任意 Git 分支直接发布。生产自更新还需可信制品、锁定依赖、兼容迁移及独立发布权限。
