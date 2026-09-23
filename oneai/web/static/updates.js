@@ -5,7 +5,10 @@
  const row=document.createElement('div');row.className='release-status';
  const label=document.createElement('small');label.textContent='界面版本 '+loaded.slice(0,7);
  const button=document.createElement('button');button.className='text-button';button.hidden=true;
- button.textContent='有新版本 · 重新加载';row.append(label,button);document.body.append(row);
+ button.textContent='有新版本 · 重新加载';button.classList?.add('release-update');
+ row.append(label);const devices=document.querySelector('#devices-page');
+ if(devices?.prepend)devices.prepend(row);else document.body.append(row);
+ document.body.append(button);
  let pending;
  async function check(){
   if(document.hidden)return;

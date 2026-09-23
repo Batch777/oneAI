@@ -51,3 +51,5 @@ html,body,body *{touch-action:manipulation}
 @media(prefers-reduced-motion:reduce){.pull-refresh{transform:translateX(-50%);transition:none}.pull-refresh::before{transform:none}}
 
 .release-status{display:flex;align-items:center;justify-content:center;gap:12px;padding:8px 16px calc(8px + env(safe-area-inset-bottom));color:var(--muted);font-size:12px;flex-wrap:wrap}.release-status button{font-size:12px}
+
+.release-update{position:fixed;bottom:calc(12px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);z-index:120;background:var(--ink);color:white;border-radius:24px;box-shadow:0 4px 18px #0002;max-width:calc(100vw - 24px);white-space:nowrap}.release-status{justify-content:flex-start;padding:0 0 12px}
